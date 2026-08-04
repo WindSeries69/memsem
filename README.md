@@ -40,12 +40,17 @@ La base de données est créée au premier lancement dans `~/.memory-mcp/memory.
 
 ## Brancher sur opencode
 
-Dans `opencode.json` (projet ou `~/.config/opencode/opencode.json`) :
+1. Copier le protocole une fois chez soi (le fichier n'a pas de chemin stable
+   avec `npx`) : `mkdir -p ~/.memsem && cp memory-protocol.md ~/.memsem/`
+2. Dans `opencode.json` (projet ou `~/.config/opencode/opencode.json`) :
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "instructions": ["./node_modules/memsem/memory-protocol.md"],
+  "instructions": [
+    "/chemin/vers/~/.memsem/memory-protocol.md",
+    "/chemin/vers/~/.memsem/memory-index.md"
+  ],
   "mcp": {
     "memory": {
       "type": "local",
@@ -56,7 +61,8 @@ Dans `opencode.json` (projet ou `~/.config/opencode/opencode.json`) :
 }
 ```
 
-Redémarrer opencode. Le projet par défaut est le répertoire courant ;
+L'index (`memory-index.md`) est généré automatiquement au premier démarrage du
+serveur. Redémarrer opencode. Le projet par défaut est le répertoire courant ;
 surcharge possible avec `"environment": { "MEMORY_PROJECT": "mon-projet" }`.
 
 ## Brancher sur Claude Code
