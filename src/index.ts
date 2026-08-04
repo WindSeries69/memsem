@@ -223,7 +223,7 @@ server.registerTool(
   async () => {
     const semantic = {
       available: await ollamaAvailable(),
-      model: EMBED_MODEL,
+      model: EMBED_MODEL(),
       embedded: db.memoriesWithoutEmbedding().length === 0 ? "all" : "partial",
     };
     return {

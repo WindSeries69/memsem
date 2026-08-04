@@ -1,7 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
-import { computePriority, clamp01, searchScore, lexicalScore, MIN_LEXICAL, tokenize } from "./scoring.js";
+import { computePriority, clamp01, searchScore, lexicalScore, minLexical, tokenize } from "./scoring.js";
+import { getConfig } from "./config.js";
 import { ollamaAvailable, embed, cosine } from "./embed.js";
 
 export interface MemoryRecord {
@@ -283,7 +284,8 @@ export class MemoryDb {
         if (outcome.archived) archived.push(outcome.id);
         else faded.push(outcome.id);
       }
-      const confidence = clamp01(exact.confidence + 0.1);
+      const cfg = getConfig();
+      const confidence = clamp01(exact.confidence + cfg.reinforceConfidenceStep);
       const mergedTags = [...new Set([...JSON.parse(exact.tags), ...tags])];
       this.db
         .prepare(
@@ -321,7 +323,7 @@ export class MemoryDb {
           `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, created_at, updated_at, pinned, theme)
            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(subject, predicate, object, JSON.stringify(tags), importance, 0.6, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
+        .run(subject, predicate, object, JSON.stringify(tags), importance, getConfig().supersedeConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
       const id = Number(info.lastInsertRowid);
       for (const other of rows) {
         this.db
@@ -347,7 +349,7 @@ export class MemoryDb {
         `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, created_at, updated_at, pinned, theme)
          VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(subject, predicate, object, JSON.stringify(tags), importance, 0.5, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
+      .run(subject, predicate, object, JSON.stringify(tags), importance, getConfig().initialConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
     const id = Number(info.lastInsertRowid);
     this.linkMemory(id, subject, object, input.project);
     return {
@@ -387,9 +389,10 @@ export class MemoryDb {
   }
 
   private fade(row: { id: number; object: string; confidence: number; importance: number }, now: string): { id: number; archived: boolean } {
-    const factor = row.importance >= 0.8 ? 0.9 : 0.6;
+    const cfg = getConfig();
+    const factor = row.importance >= cfg.criticalImportance ? cfg.criticalFadeFactor : cfg.fadeFactor;
     const next = row.confidence * factor;
-    if (next < 0.25) {
+    if (next < cfg.archiveThreshold) {
       this.db
         .prepare(`UPDATE memories SET archived = 1, updated_at = ? WHERE id = ?`)
         .run(now, row.id);
@@ -453,7 +456,8 @@ export class MemoryDb {
 
   private reweight(hits: SearchHit[], focus: string[] | null): SearchHit[] {
     if (!focus || focus.length === 0) return hits;
-    return hits.map((h) => (this.inFocus(h.theme, focus) ? h : { ...h, score: h.score * 0.35 }));
+    const attenuation = getConfig().focusAttenuation;
+    return hits.map((h) => (this.inFocus(h.theme, focus) ? h : { ...h, score: h.score * attenuation }));
   }
 
   async search(query: string, project: string | null, theme: string | null, limit: number, relax: boolean = false, focus: string[] | null = null): Promise<SearchHit[]> {
@@ -484,7 +488,7 @@ export class MemoryDb {
     }
     const withBase = hits.map((h) => ({ ...h, score: searchScore(query, h), lexical: lexicalScore(query, h) }));
     const seeded = withBase
-      .filter((h) => h.lexical > 0 && (relax || h.lexical >= MIN_LEXICAL))
+      .filter((h) => h.lexical > 0 && (relax || h.lexical >= minLexical()))
       .sort((a, b) => b.score - a.score);
     if (!relax) return this.reweight(seeded, focus).sort((a, b) => b.score - a.score).slice(0, limit);
     if (seeded.length === 0) {
@@ -493,7 +497,8 @@ export class MemoryDb {
     const best = seeded[0].score;
     let frontier = seeded;
     const activated = new Set<number>(seeded.map((h) => h.id));
-    for (let hop = 1; hop <= 2; hop++) {
+    const cfg = getConfig();
+    for (let hop = 1; hop <= cfg.relaxGraphHops; hop++) {
       const ids = [...new Set(frontier.map((h) => h.id))];
       if (ids.length === 0) break;
       const placeholders = ids.map(() => "?").join(",");
@@ -511,7 +516,7 @@ export class MemoryDb {
       const next: Array<typeof withBase[number]> = [];
       for (const h of withBase) {
         if (neighbors.has(h.id) && !activated.has(h.id)) {
-          h.score = best * Math.pow(0.3, hop);
+          h.score = best * Math.pow(cfg.relaxGraphBoost, hop);
           activated.add(h.id);
           next.push(h);
         }
@@ -598,7 +603,7 @@ export class MemoryDb {
         const sim = cosine(qv, JSON.parse(row.embedding) as number[]);
         return { row, sim };
       })
-      .filter((x) => x.sim >= 0.5)
+      .filter((x) => x.sim >= getConfig().relaxCosineThreshold)
       .sort((a, b) => b.sim - a.sim)
       .slice(0, limit)
       .map(({ row, sim }) => ({
@@ -614,7 +619,7 @@ export class MemoryDb {
         theme: row.theme,
         project: row.project,
         priority: this.priorityOf(row),
-        score: sim * 0.9,
+        score: sim * getConfig().relaxSemanticWeight,
       }));
   }
 
@@ -656,7 +661,7 @@ export class MemoryDb {
         score: 0,
       }))
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.priority - a.priority)
-      .map((m) => (this.inFocus(m.theme, focus) ? m : { ...m, priority: m.priority * 0.35 }))
+      .map((m) => (this.inFocus(m.theme, focus) ? m : { ...m, priority: m.priority * getConfig().focusAttenuation }))
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.priority - a.priority)
       .slice(0, limit);
   }
@@ -827,7 +832,7 @@ export class MemoryDb {
         const mTokens = tokenize(r.summary);
         const hits = qTokens.filter((t) => mTokens.includes(t)).length;
         const ratio = hits / qTokens.length;
-        return ratio >= MIN_LEXICAL
+        return ratio >= minLexical()
           ? {
               id: r.id,
               project: r.project,
