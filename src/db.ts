@@ -62,85 +62,187 @@ function normalizeKey(value: string): string {
   return value.toLowerCase().trim();
 }
 
+export interface Migration {
+  version: number;
+  name: string;
+  up: (db: DatabaseSync) => void;
+}
+
+// Migrations ordonnées. NE JAMAIS modifier une migration publiée : ajouter la suivante.
+// v1 = schéma historique (création idempotente + colonnes ajoutées par ALTER).
+// Toute base existante (0.x) est migrée automatiquement, avec backup avant migration.
+export const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    name: "baseline-2026-08",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS memories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          subject TEXT NOT NULL,
+          predicate TEXT NOT NULL,
+          object TEXT NOT NULL,
+          tags TEXT NOT NULL DEFAULT '[]',
+          importance REAL NOT NULL DEFAULT 0.5,
+          confidence REAL NOT NULL DEFAULT 0.5,
+          frequency INTEGER NOT NULL DEFAULT 1,
+          project TEXT NOT NULL DEFAULT '',
+          provenance TEXT,
+          archived INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
+        CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(archived);
+
+        CREATE TABLE IF NOT EXISTS memory_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+          previous TEXT NOT NULL,
+          changed_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS edges (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          source_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+          target_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+          relation TEXT NOT NULL DEFAULT 'related',
+          UNIQUE(source_id, target_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS episodes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project TEXT NOT NULL DEFAULT '',
+          summary TEXT,
+          provenance TEXT,
+          created_at TEXT NOT NULL
+        );
+      `);
+      for (const alter of [
+        `ALTER TABLE episodes ADD COLUMN provenance TEXT`,
+        `DROP INDEX IF EXISTS idx_memories_live`,
+        `ALTER TABLE memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+        `ALTER TABLE memories ADD COLUMN theme TEXT`,
+        `ALTER TABLE memories ADD COLUMN embedding TEXT`,
+      ]) {
+        try {
+          db.exec(alter);
+        } catch {
+          // colonne déjà présente (base existante) — idempotent
+        }
+      }
+    },
+  },
+  {
+    version: 2,
+    name: "history-index",
+    up: (db) => {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_history_memory ON memory_history(memory_id);`);
+    },
+  },
+];
+
+export const HEAD_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
+
+export interface BackupPayload {
+  format: "memsem-backup";
+  formatVersion: number;
+  exportedAt: string;
+  dbVersion: number;
+  project: string | null;
+  memories: Array<Record<string, unknown>>;
+  history: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+  episodes: Array<Record<string, unknown>>;
+}
+
 export class MemoryDb {
   private db: DatabaseSync;
+  private readonly filePath: string;
 
   constructor(filePath: string) {
+    this.filePath = filePath;
+    const existed = fs.existsSync(filePath);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     this.db = new DatabaseSync(filePath);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA foreign_keys = ON");
-    this.migrate();
+    this.migrate(existed);
   }
 
-  private migrate(): void {
+  private migrate(existed: boolean): void {
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS memories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        subject TEXT NOT NULL,
-        predicate TEXT NOT NULL,
-        object TEXT NOT NULL,
-        tags TEXT NOT NULL DEFAULT '[]',
-        importance REAL NOT NULL DEFAULT 0.5,
-        confidence REAL NOT NULL DEFAULT 0.5,
-        frequency INTEGER NOT NULL DEFAULT 1,
-        project TEXT NOT NULL DEFAULT '',
-        provenance TEXT,
-        archived INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
-      CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(archived);
-
-      CREATE TABLE IF NOT EXISTS memory_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-        previous TEXT NOT NULL,
-        changed_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS edges (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        source_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-        target_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-        relation TEXT NOT NULL DEFAULT 'related',
-        UNIQUE(source_id, target_id)
-      );
-
-      CREATE TABLE IF NOT EXISTS episodes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project TEXT NOT NULL DEFAULT '',
-        summary TEXT,
-        provenance TEXT,
-        created_at TEXT NOT NULL
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL
       );
     `);
-    try {
-      this.db.exec(`ALTER TABLE episodes ADD COLUMN provenance TEXT`);
-    } catch {
-      // colonne déjà présente (base existante)
+    const applied = new Set(
+      (this.db.prepare(`SELECT version FROM schema_migrations`).all() as Array<{ version: number }>).map((r) => r.version),
+    );
+    const pending = MIGRATIONS.filter((m) => !applied.has(m.version));
+    if (pending.length > 0) {
+      // Backup automatique avant toute migration — sur une base qui existait déjà.
+      if (existed) this.backupBeforeMigration();
+      const now = new Date().toISOString();
+      for (const migration of pending) {
+        this.db.exec("BEGIN");
+        try {
+          migration.up(this.db);
+          this.db
+            .prepare(`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`)
+            .run(migration.version, migration.name, now);
+          this.db.exec("COMMIT");
+        } catch (err) {
+          this.db.exec("ROLLBACK");
+          throw err;
+        }
+      }
     }
+  }
+
+  private backupBeforeMigration(): void {
     try {
-      this.db.exec(`DROP INDEX IF EXISTS idx_memories_live`);
-    } catch {
-      // index déjà absent
+      const dir = path.dirname(this.filePath);
+      const backupsDir = path.join(dir, "backups");
+      fs.mkdirSync(backupsDir, { recursive: true });
+      // Checkpoint pour fusionner le WAL dans le fichier principal avant la copie.
+      try {
+        this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      } catch {
+        // checkpoint best-effort
+      }
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const target = path.join(backupsDir, `memory-${stamp}.db.bak`);
+      fs.copyFileSync(this.filePath, target);
+      const backups = fs
+        .readdirSync(backupsDir)
+        .filter((f) => f.endsWith(".db.bak"))
+        .sort()
+        .reverse();
+      for (const old of backups.slice(5)) {
+        fs.unlinkSync(path.join(backupsDir, old));
+      }
+    } catch (err) {
+      // Un backup raté ne doit jamais bloquer le démarrage.
+      console.error("[memsem] backup avant migration echoue (continuation sans backup):", String(err).slice(0, 200));
     }
-    try {
-      this.db.exec(`ALTER TABLE memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
-    } catch {
-      // colonne déjà présente (base existante)
-    }
-    try {
-      this.db.exec(`ALTER TABLE memories ADD COLUMN theme TEXT`);
-    } catch {
-      // colonne déjà présente (base existante)
-    }
-    try {
-      this.db.exec(`ALTER TABLE memories ADD COLUMN embedding TEXT`);
-    } catch {
-      // colonne déjà présente (base existante)
-    }
+  }
+
+  /** Version de schéma atteinte (== HEAD_VERSION après migration). */
+  version(): number {
+    const row = this.db.prepare(`SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations`).get() as { v: number };
+    return row.v;
+  }
+
+  /** Liste des migrations appliquées (audit). */
+  appliedMigrations(): Array<{ version: number; name: string; appliedAt: string }> {
+    return (
+      this.db
+        .prepare(`SELECT version, name, applied_at FROM schema_migrations ORDER BY version`)
+        .all() as Array<{ version: number; name: string; applied_at: string }>
+    ).map((r) => ({ version: r.version, name: r.name, appliedAt: r.applied_at }));
   }
 
   close(): void {
@@ -676,8 +778,7 @@ export class MemoryDb {
     };
   }
 
-  addEpisode(input: { project: string; summary: string; provenance?: string }): { id: number } {
-    const now = new Date().toISOString();
+  addEpisode(input: { project: string; summary: string; provenance?: string }): { id: number } {    const now = new Date().toISOString();
     const info = this.db
       .prepare(`INSERT INTO episodes (project, summary, provenance, created_at) VALUES (?, ?, ?, ?)`)
       .run(input.project, input.summary, input.provenance ?? null, now);
@@ -739,5 +840,137 @@ export class MemoryDb {
       })
       .filter((r): r is NonNullable<typeof r> => r !== null)
       .slice(0, limit);
+  }
+
+  /** Dump complet en JSON lisible (faits actifs + archivés, historique, arêtes, épisodes). */
+  exportJSON(project: string | null = null): BackupPayload {
+    const memWhere = project ? "WHERE project = ?" : "";
+    const memories = (
+      this.db.prepare(`SELECT * FROM memories ${memWhere}`).all(...(project ? [project] : [])) as Array<Record<string, unknown>>
+    ).map((m) => ({ ...m, tags: JSON.parse(m.tags as string) }));
+    const history = this.db
+      .prepare(`SELECT id, memory_id, previous, changed_at FROM memory_history`)
+      .all() as Array<Record<string, unknown>>;
+    const edges = this.db
+      .prepare(`SELECT id, source_id, target_id, relation FROM edges`)
+      .all() as Array<Record<string, unknown>>;
+    const episodes = this.db
+      .prepare(`SELECT id, project, summary, provenance, created_at FROM episodes`)
+      .all() as Array<Record<string, unknown>>;
+    return {
+      format: "memsem-backup",
+      formatVersion: 1,
+      exportedAt: new Date().toISOString(),
+      dbVersion: this.version(),
+      project,
+      memories,
+      history,
+      edges,
+      episodes,
+    };
+  }
+
+  /**
+   * Import d'un dump memsem-backup. Fusion sans casse : un fait déjà présent
+   * (sujet+prédicat+objet+projet) n'est pas dupliqué ; historique/arêtes
+   * rattachés aux faits existants par triplet ; épisodes dédupliqués.
+   */
+  importJSON(payload: BackupPayload): { memories: number; history: number; edges: number; episodes: number } {
+    if (!payload || payload.format !== "memsem-backup") {
+      throw new Error("format invalide : attendu memsem-backup");
+    }
+    const out = { memories: 0, history: 0, edges: 0, episodes: 0 };
+    const idMap = new Map<number, number>();
+    this.db.exec("BEGIN");
+    try {
+      const findMemory = this.db.prepare(
+        `SELECT id FROM memories
+         WHERE lower(trim(subject)) = ? AND lower(trim(predicate)) = ? AND lower(trim(object)) = ? AND trim(project) = ?`,
+      );
+      const insertMemory = this.db.prepare(
+        `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, archived, created_at, updated_at, pinned, theme, embedding)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const m of payload.memories) {
+        const subject = String(m.subject ?? "");
+        const predicate = String(m.predicate ?? "");
+        const object = String(m.object ?? "");
+        const project = String(m.project ?? "");
+        const existing = findMemory.get(normalizeKey(subject), normalizeKey(predicate), normalizeKey(object), project.trim()) as
+          | { id: number }
+          | undefined;
+        if (existing) {
+          idMap.set(Number(m.id), existing.id);
+          continue;
+        }
+        const info = insertMemory.run(
+          subject,
+          predicate,
+          object,
+          JSON.stringify(Array.isArray(m.tags) ? m.tags : []),
+          clamp01(Number(m.importance) || 0.5),
+          clamp01(Number(m.confidence) || 0.5),
+          Number(m.frequency) || 1,
+          project,
+          m.provenance ? String(m.provenance) : null,
+          Number(m.archived) === 1 ? 1 : 0,
+          String(m.created_at ?? new Date().toISOString()),
+          String(m.updated_at ?? new Date().toISOString()),
+          Number(m.pinned) === 1 ? 1 : 0,
+          m.theme ? String(m.theme) : null,
+          m.embedding ? JSON.stringify(m.embedding) : null,
+        );
+        idMap.set(Number(m.id), Number(info.lastInsertRowid));
+        out.memories++;
+      }
+
+      const historyExists = this.db.prepare(
+        `SELECT id FROM memory_history WHERE memory_id = ? AND previous = ? AND changed_at = ?`,
+      );
+      const insertHistory = this.db.prepare(
+        `INSERT INTO memory_history (memory_id, previous, changed_at) VALUES (?, ?, ?)`,
+      );
+      for (const h of payload.history) {
+        const targetId = idMap.get(Number(h.memory_id));
+        if (!targetId) continue;
+        const previous = String(h.previous ?? "");
+        const changedAt = String(h.changed_at ?? "");
+        if (historyExists.get(targetId, previous, changedAt)) continue;
+        insertHistory.run(targetId, previous, changedAt);
+        out.history++;
+      }
+
+      const insertEdge = this.db.prepare(
+        `INSERT OR IGNORE INTO edges (source_id, target_id, relation) VALUES (?, ?, ?)`,
+      );
+      for (const e of payload.edges) {
+        const sourceId = idMap.get(Number(e.source_id));
+        const targetId = idMap.get(Number(e.target_id));
+        if (!sourceId || !targetId) continue;
+        insertEdge.run(sourceId, targetId, String(e.relation ?? "related"));
+        out.edges++;
+      }
+
+      const episodeExists = this.db.prepare(
+        `SELECT id FROM episodes WHERE summary = ? AND created_at = ? AND COALESCE(provenance, '') = COALESCE(?, '')`,
+      );
+      const insertEpisode = this.db.prepare(
+        `INSERT INTO episodes (project, summary, provenance, created_at) VALUES (?, ?, ?, ?)`,
+      );
+      for (const ep of payload.episodes) {
+        const summary = String(ep.summary ?? "");
+        const createdAt = String(ep.created_at ?? "");
+        const provenance = ep.provenance ? String(ep.provenance) : null;
+        if (episodeExists.get(summary, createdAt, provenance)) continue;
+        insertEpisode.run(String(ep.project ?? ""), summary, provenance, createdAt);
+        out.episodes++;
+      }
+
+      this.db.exec("COMMIT");
+      return out;
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 }
