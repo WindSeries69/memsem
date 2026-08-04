@@ -1,0 +1,35 @@
+{
+  "name": "memsem",
+  "version": "0.12.4",
+  "type": "module",
+  "description": "Mémoire sémantique persistante et priorisée pour IA (serveur MCP universel)",
+  "keywords": ["mcp", "memory", "semantic-memory", "ai", "claude", "opencode", "persistent-memory"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "bin": {
+    "memsem": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "opencode-plugin",
+    "README.md",
+    "DESIGN.md",
+    "memory-protocol.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "npm run build && node dist/test/client-test.js",
+    "prepublishOnly": "npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "typescript": "^5.8.0"
+  }
+}

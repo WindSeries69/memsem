@@ -1,0 +1,746 @@
+import { DatabaseSync } from "node:sqlite";
+import fs from "node:fs";
+import path from "node:path";
+import { computePriority, clamp01, searchScore, lexicalScore, MIN_LEXICAL, tokenize } from "./scoring.js";
+import { ollamaAvailable, embed, cosine } from "./embed.js";
+
+export interface MemoryRecord {
+  id: number;
+  subject: string;
+  predicate: string;
+  object: string;
+  tags: string[];
+  importance: number;
+  confidence: number;
+  frequency: number;
+  project: string;
+  provenance: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AddInput {
+  subject: string;
+  predicate: string;
+  object: string;
+  importance?: number;
+  tags?: string[];
+  theme?: string;
+  project: string;
+  provenance?: string;
+  pin?: boolean;
+}
+
+export interface AddResult {
+  id: number;
+  created: boolean;
+  changed: boolean;
+  conflict: boolean;
+  confidence: number;
+  frequency: number;
+  faded: number[];
+  archived: number[];
+  history: Array<{ previous: string; changedAt: string }>;
+}
+
+export interface SearchHit {
+  id: number;
+  subject: string;
+  predicate: string;
+  object: string;
+  tags: string[];
+  importance: number;
+  confidence: number;
+  frequency: number;
+  pinned: boolean;
+  theme: string | null;
+  priority: number;
+  score: number;
+}
+
+function normalizeKey(value: string): string {
+  return value.toLowerCase().trim();
+}
+
+export class MemoryDb {
+  private db: DatabaseSync;
+
+  constructor(filePath: string) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    this.db = new DatabaseSync(filePath);
+    this.db.exec("PRAGMA journal_mode = WAL");
+    this.db.exec("PRAGMA foreign_keys = ON");
+    this.migrate();
+  }
+
+  private migrate(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject TEXT NOT NULL,
+        predicate TEXT NOT NULL,
+        object TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '[]',
+        importance REAL NOT NULL DEFAULT 0.5,
+        confidence REAL NOT NULL DEFAULT 0.5,
+        frequency INTEGER NOT NULL DEFAULT 1,
+        project TEXT NOT NULL DEFAULT '',
+        provenance TEXT,
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_live
+        ON memories(subject, predicate, project)
+        WHERE archived = 0;
+      CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
+      CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(archived);
+
+      CREATE TABLE IF NOT EXISTS memory_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+        previous TEXT NOT NULL,
+        changed_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS edges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+        target_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+        relation TEXT NOT NULL DEFAULT 'related',
+        UNIQUE(source_id, target_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS episodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL DEFAULT '',
+        summary TEXT,
+        provenance TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+    try {
+      this.db.exec(`ALTER TABLE episodes ADD COLUMN provenance TEXT`);
+    } catch {
+      // colonne déjà présente (base existante)
+    }
+    try {
+      this.db.exec(`DROP INDEX IF EXISTS idx_memories_live`);
+    } catch {
+      // index déjà absent
+    }
+    try {
+      this.db.exec(`ALTER TABLE memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
+    } catch {
+      // colonne déjà présente (base existante)
+    }
+    try {
+      this.db.exec(`ALTER TABLE memories ADD COLUMN theme TEXT`);
+    } catch {
+      // colonne déjà présente (base existante)
+    }
+    try {
+      this.db.exec(`ALTER TABLE memories ADD COLUMN embedding TEXT`);
+    } catch {
+      // colonne déjà présente (base existante)
+    }
+  }
+
+  close(): void {
+    this.db.close();
+  }
+
+  add(input: AddInput): AddResult {
+    const now = new Date().toISOString();
+    const subject = input.subject.trim();
+    const predicate = input.predicate.trim();
+    const object = input.object.trim();
+    const importance = clamp01(input.importance ?? 0.5);
+    const theme = input.theme?.trim().toLowerCase() || null;
+    const tags = [...new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean))];
+
+    const rows = this.db
+      .prepare(
+        `SELECT id, object, confidence, frequency, importance, tags
+         FROM memories WHERE subject = ? AND predicate = ? AND project = ? AND archived = 0`,
+      )
+      .all(normalizeKey(subject), normalizeKey(predicate), input.project) as Array<{
+      id: number;
+      object: string;
+      confidence: number;
+      frequency: number;
+      importance: number;
+      tags: string;
+    }>;
+
+    const exact = rows.find((r) => normalizeKey(r.object) === normalizeKey(object));
+
+    if (exact) {
+      const faded: number[] = [];
+      const archived: number[] = [];
+      for (const other of rows) {
+        if (other.id === exact.id) continue;
+        const outcome = this.fade(other, now);
+        if (outcome.archived) archived.push(outcome.id);
+        else faded.push(outcome.id);
+      }
+      const confidence = clamp01(exact.confidence + 0.1);
+      const mergedTags = [...new Set([...JSON.parse(exact.tags), ...tags])];
+      this.db
+        .prepare(
+          `UPDATE memories
+           SET confidence = ?, frequency = frequency + 1,
+               importance = MAX(importance, ?), tags = ?, updated_at = ?,
+               pinned = MAX(pinned, ?), theme = COALESCE(theme, ?)
+           WHERE id = ?`,
+        )
+        .run(confidence, importance, JSON.stringify(mergedTags), now, input.pin ? 1 : 0, theme, exact.id);
+      const history = this.historyOf(exact.id);
+      return {
+        id: exact.id,
+        created: false,
+        changed: false,
+        conflict: faded.length + archived.length > 0,
+        confidence,
+        frequency: exact.frequency + 1,
+        faded,
+        archived,
+        history,
+      };
+    }
+
+    if (rows.length > 0) {
+      const faded: number[] = [];
+      const archived: number[] = [];
+      for (const other of rows) {
+        const outcome = this.fade(other, now);
+        if (outcome.archived) archived.push(outcome.id);
+        else faded.push(outcome.id);
+      }
+      const info = this.db
+        .prepare(
+          `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, created_at, updated_at, pinned, theme)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(subject, predicate, object, JSON.stringify(tags), importance, 0.6, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
+      const id = Number(info.lastInsertRowid);
+      for (const other of rows) {
+        this.db
+          .prepare(`INSERT OR IGNORE INTO edges (source_id, target_id, relation) VALUES (?, ?, 'contradicts')`)
+          .run(id, other.id);
+      }
+      this.linkMemory(id, subject, object, input.project);
+      return {
+        id,
+        created: true,
+        changed: true,
+        conflict: true,
+        confidence: 0.6,
+        frequency: 1,
+        faded,
+        archived,
+        history: [],
+      };
+    }
+
+    const info = this.db
+      .prepare(
+        `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, created_at, updated_at, pinned, theme)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(subject, predicate, object, JSON.stringify(tags), importance, 0.5, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
+    const id = Number(info.lastInsertRowid);
+    this.linkMemory(id, subject, object, input.project);
+    return {
+      id,
+      created: true,
+      changed: false,
+      conflict: false,
+      confidence: 0.5,
+      frequency: 1,
+      faded: [],
+      archived: [],
+      history: [],
+    };
+  }
+
+  private linkMemory(id: number, subject: string, object: string, project: string): void {
+    const others = this.db
+      .prepare(
+        `SELECT id, subject, object FROM memories
+         WHERE project = ? AND archived = 0 AND id != ?`,
+      )
+      .all(project, id) as Array<{ id: number; subject: string; object: string }>;
+    const key = normalizeKey;
+    for (const other of others) {
+      const linked =
+        key(other.subject) === key(subject) ||
+        key(other.object) === key(subject) ||
+        key(other.subject) === key(object);
+      if (linked) {
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO edges (source_id, target_id) VALUES (?, ?)`,
+          )
+          .run(id, other.id);
+      }
+    }
+  }
+
+  private fade(row: { id: number; object: string; confidence: number; importance: number }, now: string): { id: number; archived: boolean } {
+    const factor = row.importance >= 0.8 ? 0.9 : 0.6;
+    const next = row.confidence * factor;
+    if (next < 0.25) {
+      this.db
+        .prepare(`UPDATE memories SET archived = 1, updated_at = ? WHERE id = ?`)
+        .run(now, row.id);
+      this.db
+        .prepare(`INSERT INTO memory_history (memory_id, previous, changed_at) VALUES (?, ?, ?)`)
+        .run(row.id, row.object, now);
+      return { id: row.id, archived: true };
+    }
+    this.db.prepare(`UPDATE memories SET confidence = ? WHERE id = ?`).run(next, row.id);
+    return { id: row.id, archived: false };
+  }
+
+  private historyOf(memoryId: number): Array<{ previous: string; changedAt: string }> {
+    return (
+      this.db
+        .prepare(`SELECT previous, changed_at FROM memory_history WHERE memory_id = ? ORDER BY changed_at DESC`)
+        .all(memoryId) as Array<{ previous: string; changed_at: string }>
+    ).map((h) => ({ previous: h.previous, changedAt: h.changed_at }));
+  }
+
+  addMany(inputs: AddInput[]): AddResult[] {
+    this.db.exec("BEGIN");
+    try {
+      const results = inputs.map((i) => this.add(i));
+      this.db.exec("COMMIT");
+      return results;
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  private priorityOf(row: { importance: number; confidence: number; frequency: number; updated_at: string }): number {
+    const ageHours = (Date.now() - new Date(row.updated_at).getTime()) / 3_600_000;
+    return computePriority({
+      importance: row.importance,
+      confidence: row.confidence,
+      frequency: row.frequency,
+      ageHours,
+    });
+  }
+
+  private whereClause(project: string | null, theme: string | null): { sql: string; params: (string | number)[] } {
+    const clauses: string[] = ["archived = 0"];
+    const params: (string | number)[] = [];
+    if (theme) {
+      clauses.push("(theme = ? OR theme LIKE ?)");
+      params.push(theme, `${theme}/%`);
+    } else if (project) {
+      clauses.push("project = ?");
+      params.push(project);
+    }
+    return { sql: clauses.join(" AND "), params };
+  }
+
+  private inFocus(theme: string | null, focus: string[] | null): boolean {
+    if (!focus || focus.length === 0) return true;
+    if (!theme) return false;
+    return focus.some((f) => theme === f || theme.startsWith(`${f}/`));
+  }
+
+  private reweight(hits: SearchHit[], focus: string[] | null): SearchHit[] {
+    if (!focus || focus.length === 0) return hits;
+    return hits.map((h) => (this.inFocus(h.theme, focus) ? h : { ...h, score: h.score * 0.35 }));
+  }
+
+  async search(query: string, project: string | null, theme: string | null, limit: number, relax: boolean = false, focus: string[] | null = null): Promise<SearchHit[]> {
+    const where = this.whereClause(project, theme);
+    const rows = this.db
+      .prepare(
+        `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, pinned, theme, updated_at
+         FROM memories WHERE ${where.sql}`,
+      )
+      .all(...where.params) as Array<{
+      id: number;
+      subject: string;
+      predicate: string;
+      object: string;
+      tags: string;
+      importance: number;
+      confidence: number;
+      frequency: number;
+      project: string;
+      pinned: number;
+      theme: string | null;
+      updated_at: string;
+    }>;
+    const hits: SearchHit[] = [];
+    for (const row of rows) {
+      const tags = JSON.parse(row.tags) as string[];
+      hits.push({ ...row, pinned: row.pinned === 1, tags, priority: this.priorityOf(row), score: 0 });
+    }
+    const withBase = hits.map((h) => ({ ...h, score: searchScore(query, h), lexical: lexicalScore(query, h) }));
+    const seeded = withBase
+      .filter((h) => h.lexical > 0 && (relax || h.lexical >= MIN_LEXICAL))
+      .sort((a, b) => b.score - a.score);
+    if (!relax) return this.reweight(seeded, focus).sort((a, b) => b.score - a.score).slice(0, limit);
+    if (seeded.length === 0) {
+      return (await this.semanticCandidates(query, project, theme, limit)).slice(0, limit);
+    }
+    const best = seeded[0].score;
+    let frontier = seeded;
+    const activated = new Set<number>(seeded.map((h) => h.id));
+    for (let hop = 1; hop <= 2; hop++) {
+      const ids = [...new Set(frontier.map((h) => h.id))];
+      if (ids.length === 0) break;
+      const placeholders = ids.map(() => "?").join(",");
+      const edges = this.db
+        .prepare(
+          `SELECT source_id, target_id FROM edges
+           WHERE source_id IN (${placeholders}) OR target_id IN (${placeholders})`,
+        )
+        .all(...ids, ...ids) as Array<{ source_id: number; target_id: number }>;
+      const neighbors = new Set<number>();
+      for (const e of edges) {
+        neighbors.add(e.source_id);
+        neighbors.add(e.target_id);
+      }
+      const next: Array<typeof withBase[number]> = [];
+      for (const h of withBase) {
+        if (neighbors.has(h.id) && !activated.has(h.id)) {
+          h.score = best * Math.pow(0.3, hop);
+          activated.add(h.id);
+          next.push(h);
+        }
+      }
+      frontier = next;
+    }
+    const base = withBase
+      .filter((h) => h.score > 0)
+      .sort((a, b) => b.score - a.score);
+    if (base.length === 0) {
+      return this.reweight(await this.semanticCandidates(query, project, theme, limit), focus).slice(0, limit);
+    }
+    const semantic = await this.semanticCandidates(query, project, theme, limit);
+    const merged: SearchHit[] = [...base];
+    const seen = new Set(base.map((h) => h.id));
+    for (const s of semantic) {
+      if (!seen.has(s.id)) {
+        merged.push(s);
+        seen.add(s.id);
+      }
+    }
+    return this.reweight(merged, focus).sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
+  async refreshEmbedding(id: number): Promise<void> {
+    if (!(await ollamaAvailable())) return;
+    const row = this.db
+      .prepare(
+        `SELECT subject, predicate, object, tags, theme FROM memories WHERE id = ? AND archived = 0`,
+      )
+      .get(id) as
+      | { subject: string; predicate: string; object: string; tags: string; theme: string | null }
+      | undefined;
+    if (!row) return;
+    const text = [row.subject, row.predicate, row.object, ...JSON.parse(row.tags), row.theme]
+      .filter(Boolean)
+      .join(", ");
+    const vec = await embed(text);
+    if (vec) {
+      this.db.prepare(`UPDATE memories SET embedding = ? WHERE id = ?`).run(JSON.stringify(vec), id);
+    }
+  }
+
+  memoriesWithoutEmbedding(): number[] {
+    return (
+      this.db
+        .prepare(`SELECT id FROM memories WHERE archived = 0 AND embedding IS NULL`)
+        .all() as Array<{ id: number }>
+    ).map((r) => r.id);
+  }
+
+  private async semanticCandidates(
+    query: string,
+    project: string | null,
+    theme: string | null,
+    limit: number,
+  ): Promise<SearchHit[]> {
+    if (!(await ollamaAvailable())) return [];
+    const qv = await embed(query);
+    if (!qv) return [];
+    const where = this.whereClause(project, theme);
+    const rows = this.db
+      .prepare(
+        `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, pinned, theme, embedding, updated_at
+         FROM memories WHERE ${where.sql} AND embedding IS NOT NULL`,
+      )
+      .all(...where.params) as Array<{
+      id: number;
+      subject: string;
+      predicate: string;
+      object: string;
+      tags: string;
+      importance: number;
+      confidence: number;
+      frequency: number;
+      project: string;
+      pinned: number;
+      theme: string | null;
+      embedding: string;
+      updated_at: string;
+    }>;
+    return rows
+      .map((row) => {
+        const sim = cosine(qv, JSON.parse(row.embedding) as number[]);
+        return { row, sim };
+      })
+      .filter((x) => x.sim >= 0.5)
+      .sort((a, b) => b.sim - a.sim)
+      .slice(0, limit)
+      .map(({ row, sim }) => ({
+        id: row.id,
+        subject: row.subject,
+        predicate: row.predicate,
+        object: row.object,
+        tags: JSON.parse(row.tags) as string[],
+        importance: row.importance,
+        confidence: row.confidence,
+        frequency: row.frequency,
+        pinned: row.pinned === 1,
+        theme: row.theme,
+        project: row.project,
+        priority: this.priorityOf(row),
+        score: sim * 0.9,
+      }));
+  }
+
+  list(project: string | null, theme: string | null, limit: number, focus: string[] | null = null): SearchHit[] {
+    const where = this.whereClause(project, theme);
+    const rows = this.db
+      .prepare(
+        `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, pinned, theme, updated_at
+         FROM memories WHERE ${where.sql}`,
+      )
+      .all(...where.params) as Array<{
+      id: number;
+      subject: string;
+      predicate: string;
+      object: string;
+      tags: string;
+      importance: number;
+      confidence: number;
+      frequency: number;
+      project: string;
+      pinned: number;
+      theme: string | null;
+      updated_at: string;
+    }>;
+    return rows
+      .map((row) => ({
+        id: row.id,
+        subject: row.subject,
+        predicate: row.predicate,
+        object: row.object,
+        tags: JSON.parse(row.tags) as string[],
+        importance: row.importance,
+        confidence: row.confidence,
+        frequency: row.frequency,
+        project: row.project,
+        pinned: row.pinned === 1,
+        theme: row.theme,
+        priority: this.priorityOf(row),
+        score: 0,
+      }))
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.priority - a.priority)
+      .map((m) => (this.inFocus(m.theme, focus) ? m : { ...m, priority: m.priority * 0.35 }))
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.priority - a.priority)
+      .slice(0, limit);
+  }
+
+  stats(): Record<string, unknown> {
+    const count = (sql: string): number => (this.db.prepare(sql).get() as { n: number }).n;
+    const top = this.list(null, null, 5).map((m) => ({
+      subject: m.subject,
+      predicate: m.predicate,
+      object: m.object,
+      pinned: m.pinned,
+      priority: m.priority,
+    }));
+    const history = (
+      this.db
+        .prepare(
+          `SELECT m.subject, m.predicate, h.previous, h.changed_at
+           FROM memory_history h JOIN memories m ON m.id = h.memory_id
+           ORDER BY h.changed_at DESC LIMIT 5`,
+        )
+        .all() as Array<{ subject: string; predicate: string; previous: string; changed_at: string }>
+    ).map((h) => ({ subject: h.subject, predicate: h.predicate, previous: h.previous, changedAt: h.changed_at }));
+    return {
+      memoriesActive: count(`SELECT COUNT(*) AS n FROM memories WHERE archived = 0`),
+      memoriesArchived: count(`SELECT COUNT(*) AS n FROM memories WHERE archived = 1`),
+      pinned: count(`SELECT COUNT(*) AS n FROM memories WHERE pinned = 1 AND archived = 0`),
+      episodes: count(`SELECT COUNT(*) AS n FROM episodes`),
+      edges: count(`SELECT COUNT(*) AS n FROM edges`),
+      themes: this.themes(),
+      topByPriority: top,
+      recentHistory: history,
+    };
+  }
+
+  themes(): Array<{ theme: string; count: number }> {
+    return (
+      this.db
+        .prepare(
+          `SELECT theme, COUNT(*) AS n FROM memories
+           WHERE archived = 0 AND theme IS NOT NULL
+           GROUP BY theme ORDER BY n DESC`,
+        )
+        .all() as Array<{ theme: string; n: number }>
+    ).map((t) => ({ theme: t.theme, count: t.n }));
+  }
+
+  indexMarkdown(): string {
+    const rows = this.db
+      .prepare(
+        `SELECT subject, predicate, object, tags, importance, project, pinned, theme
+         FROM memories WHERE archived = 0 ORDER BY pinned DESC, frequency DESC`,
+      )
+      .all() as Array<{
+      subject: string;
+      predicate: string;
+      object: string;
+      tags: string;
+      importance: number;
+      project: string;
+      pinned: number;
+      theme: string | null;
+    }>;
+    if (rows.length === 0) {
+      return "# Index mémoire (memsem)\n\nAucune mémoire pour l'instant.";
+    }
+    const lines: string[] = ["# Index mémoire (memsem)", "", "Généré automatiquement — l'index de routage. Cherche par thème via memory_search."];
+    const pinned = rows.filter((r) => r.pinned === 1);
+    if (pinned.length > 0) {
+      lines.push("", "## Épinglées (toujours en contexte)", "");
+      for (const r of pinned) lines.push(`- \`${r.subject} → ${r.predicate} → ${r.object}\` (${r.project})`);
+    }
+    const byTheme = new Map<string, Array<typeof rows[number]>>();
+    const unthemed: Array<typeof rows[number]> = [];
+    for (const r of rows) {
+      if (r.theme) {
+        const list = byTheme.get(r.theme) ?? [];
+        list.push(r);
+        byTheme.set(r.theme, list);
+      } else {
+        unthemed.push(r);
+      }
+    }
+    lines.push("", `## Thèmes (${rows.length - unthemed.length} mémoires)`, "");
+    for (const [theme, mems] of [...byTheme.entries()].sort((a, b) => b[1].length - a[1].length)) {
+      const keywords = new Set<string>();
+      for (const m of mems) {
+        for (const t of tokenize(`${m.object} ${m.tags}`)) keywords.add(t);
+      }
+      const kw = [...keywords].slice(0, 6).join(", ");
+      lines.push(`- **${theme}** (${mems.length}) : ${kw}`);
+    }
+    if (unthemed.length > 0) {
+      lines.push("", "## Sans thème (recherche libre)", "");
+      for (const r of unthemed.slice(0, 5)) {
+        lines.push(`- \`${r.subject} → ${r.predicate} → ${r.object}\` (${r.project}, imp ${r.importance})`);
+      }
+    }
+    return lines.join("\n");
+  }
+
+  forget(id: number): boolean {
+    const info = this.db.prepare(`UPDATE memories SET archived = 1 WHERE id = ? AND archived = 0`).run(id);
+    return info.changes > 0;
+  }
+
+  setImportance(id: number, importance: number): { id: number; importance: number; priority: number } | null {
+    const clamped = clamp01(importance);
+    const info = this.db
+      .prepare(`UPDATE memories SET importance = ? WHERE id = ? AND archived = 0`)
+      .run(clamped, id);
+    if (info.changes === 0) return null;
+    const row = this.db
+      .prepare(`SELECT importance, confidence, frequency, updated_at FROM memories WHERE id = ?`)
+      .get(id) as { importance: number; confidence: number; frequency: number; updated_at: string };
+    return {
+      id,
+      importance: row.importance,
+      priority: this.priorityOf(row),
+    };
+  }
+
+  addEpisode(input: { project: string; summary: string; provenance?: string }): { id: number } {
+    const now = new Date().toISOString();
+    const info = this.db
+      .prepare(`INSERT INTO episodes (project, summary, provenance, created_at) VALUES (?, ?, ?, ?)`)
+      .run(input.project, input.summary, input.provenance ?? null, now);
+    return { id: Number(info.lastInsertRowid) };
+  }
+
+  episodeExists(provenance: string): boolean {
+    const row = this.db.prepare(`SELECT id FROM episodes WHERE provenance = ?`).get(provenance);
+    return row !== undefined;
+  }
+
+  episodeSearch(query: string | null, project: string | null, limit: number): Array<{
+    id: number;
+    project: string;
+    summary: string;
+    provenance: string | null;
+    createdAt: string;
+    score: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, project, summary, provenance, created_at FROM episodes
+         ${project ? "WHERE project = ?" : ""} ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(...(project ? [project] : []), limit * 5) as Array<{
+      id: number;
+      project: string;
+      summary: string;
+      provenance: string | null;
+      created_at: string;
+    }>;
+    if (!query) {
+      return rows.map((r) => ({
+        id: r.id,
+        project: r.project,
+        summary: r.summary,
+        provenance: r.provenance,
+        createdAt: r.created_at,
+        score: 0,
+      }));
+    }
+    const qTokens = tokenize(query);
+    if (qTokens.length === 0) return [];
+    return rows
+      .map((r) => {
+        const mTokens = tokenize(r.summary);
+        const hits = qTokens.filter((t) => mTokens.includes(t)).length;
+        const ratio = hits / qTokens.length;
+        return ratio >= MIN_LEXICAL
+          ? {
+              id: r.id,
+              project: r.project,
+              summary: r.summary,
+              provenance: r.provenance,
+              createdAt: r.created_at,
+              score: ratio,
+            }
+          : null;
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+      .slice(0, limit);
+  }
+}
