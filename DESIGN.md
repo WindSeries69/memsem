@@ -145,26 +145,34 @@ Première cible : **clients CLI** — opencode et Claude Code — via **MCP**, l
 protocole standard devenu universel. Un seul serveur MCP, branché partout.
 Stockage **local** pour l'instant (SQLite), sync multi-appareils plus tard.
 
-## 8. État actuel (MVP livré)
+## 8. État actuel
 
-Implémenté et testé (16 tests) :
+Implémenté et testé (49 tests) :
 
 - Serveur MCP TypeScript (`src/index.ts`), transport stdio, nom `memsem`
 - SQLite local (`src/db.ts`) : `memories` (triplets + importance/confiance/
   fréquence/projet/provenance), `memory_history` (supersession), `edges`
-  (graphe), `episodes` (vide, réservée)
+  (graphe), `episodes` (résumés de sessions + provenance)
 - Outils : `memory_add`, `memory_add_many`, `memory_search`, `memory_list`,
-  `memory_forget`
+  `memory_themes`, `memory_stats`, `memory_index`, `memory_episode_add`,
+  `memory_episode_search`, `memory_score`, `memory_forget`
 - Priorité par règles : `0.45×importance + 0.25×confiance + 0.2×récence +
   0.1×fréquence` (demi-vie : 7 jours)
-- Supersession fonctionnelle : objet changé → archivage + boost de confiance
-- Graphe : arêtes sur sujet partagé, propagation **1 saut** (boost des voisins
-  du meilleur hit lexical)
-- Projet par défaut : répertoire courant ; recherche globale sans projet
-- **Autonomie** : `memory-protocol.md` injecté via `instructions` (opencode) —
-  chargement du contexte en début de session, écriture automatique des faits
-  durables, choix d'importance par l'IA, supersession automatique
-- Config opencode : `opencode.json` (mcp local + instructions)
+- Supersession fonctionnelle : objet changé → estompage puis archivage +
+  boost de confiance
+- Graphe : arêtes sur sujet partagé ou chaînes objet==sujet (lait → lactose →
+  fromage), propagation **2 sauts** en mode relax (boost ×0.3 par saut)
+- Projet par défaut : `global` — la base vit dans `~/.memory-mcp/memory.db`,
+  partagée entre tous les repos (un nouveau dossier ne réinitialise rien) ;
+  recherche globale sans projet
+- **Autonomie** : `memory-protocol.md` injecté via `instructions` (opencode)
+  ou `CLAUDE.md` (Claude Code) — chargement du contexte en début de session,
+  écriture automatique des faits durables, choix d'importance par l'IA,
+  supersession automatique
+- **Setup universel** : plugin opencode `memsem` (une ligne `"plugin": ["memsem"]`
+  configure serveur MCP + protocole + index + permissions + agents de fond) ;
+  `npx -y memsem setup` pour opencode et Claude Code ; base par utilisateur,
+  jamais commitée
 
 ## 9. Feuille de route
 
@@ -188,9 +196,11 @@ Implémenté et testé (16 tests) :
       en arrière-plan sur chaque écriture (texte enrichi : triple + tags +
       thème), similarité cosinus (seuil 0.5) dans le mode `relax` : « fromage »
       retrouve « lactose » sans chevauchement lexical. Strict inchangé.
-- [ ] **Sub-agent de scoring en paires** (règles pures par défaut, petit LLM
-      local en option pour les cas ambigus)
-- [ ] **Consolidation de fond** : fusion en patterns, seulement si « on
+- [x] **Sub-agent de scoring en paires** (le juge) — toutes les 6 h à l'idle,
+      comparaisons par paires via `memory_score` (+0.1 / −0.1), épinglées et
+      importance ≥ 0.9 intouchables, plafond 0.85, plancher 0.4, max 5
+      ajustements, zéro changement sans preuve (fréquence ≥ 3 ou contradiction)
+- [x] **Consolidation de fond** : fusion en patterns, seulement si « on
       retrouve aussi bien », archives conservées
 - [x] **Propagation multi-sauts** — activation en cascade (2 sauts, boost ×0.3
       par saut) ; arêtes enrichies : sujet partagé **ou** objet == sujet d'une
@@ -202,8 +212,9 @@ Implémenté et testé (16 tests) :
 - [x] **Épisodes lisibles** — `memory_episode_search` : les résumés de sessions
       deviennent interrogables (« qu'est-ce qu'on a fait la semaine
       dernière ? »), seuil strict, filtre projet, liste récente sans requête
-- [ ] **Présence globale** : config globale opencode + CLAUDE.md pour Claude
-      Code
+- [x] **Présence globale** — plugin opencode universel (`"plugin": ["memsem"]`),
+      `memsem setup` pour opencode + Claude Code (MCP + CLAUDE.md), base par
+      utilisateur partagée entre tous les repos, jamais commitée
 
 ## 10. Questions ouvertes
 

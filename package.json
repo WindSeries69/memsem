@@ -40,7 +40,6 @@
     "scripts",
     "README.md",
     "README.fr.md",
-    "DESIGN.md",
     "memory-protocol.md"
   ],
   "scripts": {
