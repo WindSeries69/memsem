@@ -293,14 +293,17 @@ server.registerTool(
   {
     title: "Recalibrer l'importance",
     description:
-      "Ajuste l'importance d'une mémoire (calibrage par le sub-agent de scoring, comparaisons par paires). Ne pas utiliser pour écrire un fait — uniquement pour recalibrer.",
+      "Ajuste l'importance d'une mémoire (calibrage par le sub-agent de scoring, comparaisons par paires). Garde-fous : faits épinglés et importance ≥ 0.9 intouchables, variation plafonnée à ±0.15 (par appel et par passe cumulée via passId), bornes 0.4–0.85. dryRun: true logue sans appliquer. Ne pas utiliser pour écrire un fait — uniquement pour recalibrer.",
     inputSchema: {
       id: z.number().int().positive().describe("Identifiant de la mémoire"),
-      importance: z.number().min(0).max(1).describe("Nouvelle importance (0..1)"),
+      importance: z.number().min(0).max(1).describe("Importance cible (0..1), plafonnée à ±0.15 de la valeur actuelle"),
+      dryRun: z.boolean().optional().describe("true : journalise le changement prévu sans l'appliquer"),
+      reason: z.string().optional().describe("Pourquoi (journal d'audit), ex: 'paire: X bat Y'"),
+      passId: z.string().optional().describe("Identifiant de la passe du juge : cumule le plafond ±0.15 sur toute la passe"),
     },
   },
-  async ({ id, importance }) => {
-    const result = db.setImportance(id, importance);
+  async ({ id, importance, dryRun, reason, passId }) => {
+    const result = db.setImportance(id, importance, { dryRun, reason, passId });
     if (!result) {
       return { content: [{ type: "text", text: JSON.stringify({ error: "memoire introuvable ou archivee" }) }] };
     }

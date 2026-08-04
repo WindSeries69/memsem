@@ -87,6 +87,16 @@ function ensureProtocol(): void {
   }
 }
 
+// Mode dry-run du juge : config ~/.memsem/config.json → { "judgeDryRun": true }.
+function judgeDryRun(): boolean {
+  try {
+    const cfg = JSON.parse(readFileSync(join(STATE_DIR, "config.json"), "utf8")) as { judgeDryRun?: unknown };
+    return cfg.judgeDryRun === true;
+  } catch {
+    return false;
+  }
+}
+
 function buildTranscript(messages: MessageInfo[]): string {
   const lines: string[] = [];
   for (const message of messages) {
@@ -116,7 +126,7 @@ const CONSOLIDATE_PROMPT = `Consolidation de mémoire (memsem). Tu es l'hippocam
 6. memory_forget sur les petits faits uniquement si la vérification du point 4 passe.
 7. Maximum 3 consolidations par passe. Réponds en une ligne : ce que tu as fusionné et archivé.`;
 
-const SCORE_PROMPT = `Calibrage de priorité (memsem). Tu ajustes l'importance des mémoires par comparaisons par paires — le plus stable pour juger.
+const SCORE_PROMPT = (dryRun: boolean) => `Calibrage de priorité (memsem). Tu ajustes l'importance des mémoires par comparaisons par paires — le plus stable pour juger.
 
 1. memory_list (limit 100) : lis les mémoires actives (importance, confiance, fréquence, thème).
 2. Détecte les cas à recalibrer :
@@ -125,7 +135,9 @@ const SCORE_PROMPT = `Calibrage de priorité (memsem). Tu ajustes l'importance d
    - deux mémoires de thèmes différents aux importances visiblement inversées par rapport à leur usage réel.
 3. Compare PAR PAIRE : « laquelle compte le plus pour l'utilisateur ? » et ajuste via memory_score : gagnante +0.1, perdante -0.1.
 4. RÈGLES DE SÛRETÉ : ne touche jamais une mémoire épinglée (pinned: true), ni une importance >= 0.9 ; ne monte jamais au-dessus de 0.85 ; ne descends jamais sous 0.4 ; sans preuve claire, ne change rien.
-5. Maximum 5 ajustements par passe. Réponds en une ligne : ce que tu as recalibré.`;
+5. PASSE : passe le même passId à tous tes memory_score (ex: "juge-2026-08-04T10:00") — le plafond ±0.15 est cumulé par fait et par passe. Explique chaque ajustement via reason (ex: "paire: X bat Y").
+6. Maximum 5 ajustements par passe. Réponds en une ligne : ce que tu as recalibré.
+${dryRun ? "7. MODE DRY-RUN : passe dryRun: true sur chaque memory_score et n'applique RIEN. Réponds ce que tu aurais changé." : ""}`;
 
 type MCPEntry = { type?: string; command?: string[]; enabled?: boolean };
 
@@ -264,7 +276,7 @@ export default (async ({ client }: { client: SessionClient }) => {
             memory_search: true,
             memory_score: true,
           },
-          parts: [{ type: "text", text: SCORE_PROMPT }],
+          parts: [{ type: "text", text: SCORE_PROMPT(judgeDryRun()) }],
         },
       });
       if (await hasAssistantReply(created.data.id)) {

@@ -29,6 +29,30 @@ function runExport(args: string[], dbPath: string): void {
   }
 }
 
+function runDoctor(args: string[], dbPath: string): void {
+  const limit = Number(argValue(args, "limit") ?? 10);
+  const hours = Number(argValue(args, "hours") ?? 24);
+  const db = new MemoryDb(dbPath);
+  try {
+    const rows = db.mostModified(limit, hours);
+    const stats = db.stats();
+    console.log(`memsem doctor — faits les plus modifiés (${hours}h, max ${limit})`);
+    console.log(`base: ${stats.memoriesActive} actives, ${stats.memoriesArchived} archivées, schéma v${db.version()}`);
+    if (rows.length === 0) {
+      console.log("Aucune modification d'importance récente. Pas de signe de dérive.");
+      return;
+    }
+    console.log("");
+    for (const r of rows) {
+      console.log(`#${r.entityId} ${r.subject} → ${r.predicate} → ${r.object}`);
+      console.log(`   ${r.changes} changements, Δ total ${r.totalDelta.toFixed(3)}, ${r.dryRuns} dry-run, dernier: ${r.lastChange}`);
+      console.log(`   raison: ${r.lastReason ?? "—"}`);
+    }
+  } finally {
+    db.close();
+  }
+}
+
 function runImport(args: string[], dbPath: string): void {
   const file = args.find((a) => !a.startsWith("--"));
   if (!file) {
@@ -54,9 +78,11 @@ export function runCli(args: string[], dbPath: string): void {
       return runExport(args.slice(1), dbPath);
     case "import":
       return runImport(args.slice(1), dbPath);
+    case "doctor":
+      return runDoctor(args.slice(1), dbPath);
     default:
       console.error(`Commande inconnue: ${cmd}`);
-      console.error("Commandes: setup, export, import");
+      console.error("Commandes: setup, export, import, doctor");
       process.exit(1);
   }
 }

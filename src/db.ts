@@ -140,6 +140,28 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`CREATE INDEX IF NOT EXISTS idx_history_memory ON memory_history(memory_id);`);
     },
   },
+  {
+    version: 3,
+    name: "audit-log",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          entity TEXT NOT NULL,
+          entity_id INTEGER NOT NULL,
+          field TEXT NOT NULL,
+          old_value TEXT,
+          new_value TEXT,
+          reason TEXT,
+          pass_id TEXT,
+          dry_run INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_audit_pass ON audit_log(pass_id, entity_id);
+      `);
+    },
+  },
 ];
 
 export const HEAD_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
@@ -762,20 +784,164 @@ export class MemoryDb {
     return info.changes > 0;
   }
 
-  setImportance(id: number, importance: number): { id: number; importance: number; priority: number } | null {
-    const clamped = clamp01(importance);
-    const info = this.db
-      .prepare(`UPDATE memories SET importance = ? WHERE id = ? AND archived = 0`)
-      .run(clamped, id);
-    if (info.changes === 0) return null;
+  /**
+   * Recalibre l'importance (juge). Garde-fous : épinglées et importance ≥ 0.9
+   * intouchables, plancher 0.4 / plafond 0.85, variation plafonnée à ±0.15 par
+   * appel ET par passe (passId cumulatif). dryRun : logue sans appliquer.
+   * Toute modification (appliquée ou non) est consignée dans audit_log.
+   */
+  setImportance(
+    id: number,
+    importance: number,
+    options: { dryRun?: boolean; reason?: string; passId?: string } = {},
+  ):
+    | {
+        id: number;
+        importance: number;
+        priority: number;
+        applied: boolean;
+        refused: string | null;
+        clampedDelta: boolean;
+      }
+    | null {
     const row = this.db
+      .prepare(`SELECT importance, confidence, frequency, pinned, updated_at FROM memories WHERE id = ? AND archived = 0`)
+      .get(id) as
+      | { importance: number; confidence: number; frequency: number; pinned: number; updated_at: string }
+      | undefined;
+    if (!row) return null;
+
+    const refused = (reason: string): NonNullable<ReturnType<MemoryDb["setImportance"]>> => {
+      this.audit({ entity: "memory", entityId: id, field: "importance", oldValue: String(row.importance), newValue: String(importance), reason: `${options.reason ?? "juge"} (refuse: ${reason})`, passId: options.passId, dryRun: options.dryRun ?? false });
+      return { id, importance: row.importance, priority: this.priorityOf(row), applied: false, refused: reason, clampedDelta: false };
+    };
+
+    // Protections absolues : jamais de dérive sur un fait protégé.
+    if (row.pinned === 1) return refused("pinned");
+    if (row.importance >= 0.9) return refused("critical-0.9");
+
+    // Bornes globales [0.4, 0.85].
+    const target = clamp01(importance);
+    const clampedTarget = Math.min(0.85, Math.max(0.4, target));
+
+    // Plafond de variation : ±0.15 par appel.
+    let delta = clampedTarget - row.importance;
+    const clampedDelta = Math.abs(delta) > 0.15;
+    if (clampedDelta) delta = Math.sign(delta) * 0.15;
+
+    // Plafond cumulatif par passe (passId) : la somme des |variations| ≤ 0.15.
+    let passDelta = 0;
+    if (options.passId) {
+      const used = this.db
+        .prepare(
+          `SELECT COALESCE(SUM(ABS(CAST(new_value AS REAL) - CAST(old_value AS REAL))), 0) AS s
+           FROM audit_log WHERE entity_id = ? AND pass_id = ? AND dry_run = 0`,
+        )
+        .get(id, options.passId) as { s: number };
+      passDelta = Number(used.s);
+      if (passDelta + Math.abs(delta) > 0.15) {
+        const remaining = 0.15 - passDelta;
+        delta = remaining > 0 ? Math.sign(delta) * remaining : 0;
+      }
+    }
+
+    const next = clamp01(row.importance + delta);
+    if (options.dryRun) {
+      this.audit({ entity: "memory", entityId: id, field: "importance", oldValue: String(row.importance), newValue: String(next), reason: options.reason ?? "juge", passId: options.passId, dryRun: true });
+      return { id, importance: next, priority: this.priorityOf({ ...row, importance: next }), applied: false, refused: null, clampedDelta };
+    }
+    if (next === row.importance) {
+      this.audit({ entity: "memory", entityId: id, field: "importance", oldValue: String(row.importance), newValue: String(next), reason: options.reason ?? "juge", passId: options.passId, dryRun: false });
+      return { id, importance: row.importance, priority: this.priorityOf(row), applied: false, refused: null, clampedDelta };
+    }
+    this.db.prepare(`UPDATE memories SET importance = ?, updated_at = ? WHERE id = ?`).run(next, new Date().toISOString(), id);
+    this.audit({ entity: "memory", entityId: id, field: "importance", oldValue: String(row.importance), newValue: String(next), reason: options.reason ?? "juge", passId: options.passId, dryRun: false });
+    const updated = this.db
       .prepare(`SELECT importance, confidence, frequency, updated_at FROM memories WHERE id = ?`)
       .get(id) as { importance: number; confidence: number; frequency: number; updated_at: string };
-    return {
-      id,
-      importance: row.importance,
-      priority: this.priorityOf(row),
-    };
+    return { id, importance: updated.importance, priority: this.priorityOf(updated), applied: true, refused: null, clampedDelta };
+  }
+
+  /** Journal d'audit persistant : qui a changé quoi, quand, pourquoi. */
+  audit(entry: {
+    entity: string;
+    entityId: number;
+    field: string;
+    oldValue: string | null;
+    newValue: string | null;
+    reason?: string;
+    passId?: string;
+    dryRun?: boolean;
+  }): number {
+    const info = this.db
+      .prepare(
+        `INSERT INTO audit_log (entity, entity_id, field, old_value, new_value, reason, pass_id, dry_run, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        entry.entity,
+        entry.entityId,
+        entry.field,
+        entry.oldValue,
+        entry.newValue,
+        entry.reason ?? null,
+        entry.passId ?? null,
+        entry.dryRun ? 1 : 0,
+        new Date().toISOString(),
+      );
+    return Number(info.lastInsertRowid);
+  }
+
+  /** Faits les plus modifiés récemment (memsem doctor) — repérer une dérive. */
+  mostModified(limit = 10, hours = 24): Array<{
+    entityId: number;
+    subject: string;
+    predicate: string;
+    object: string;
+    changes: number;
+    totalDelta: number;
+    dryRuns: number;
+    lastChange: string;
+    lastReason: string | null;
+  }> {
+    const since = new Date(Date.now() - hours * 3_600_000).toISOString();
+    const rows = this.db
+      .prepare(
+        `SELECT a.entity_id, m.subject, m.predicate, m.object,
+                COUNT(*) AS changes,
+                COALESCE(SUM(ABS(CAST(a.new_value AS REAL) - CAST(a.old_value AS REAL))), 0) AS total_delta,
+                SUM(a.dry_run) AS dry_runs,
+                MAX(a.created_at) AS last_change
+         FROM audit_log a JOIN memories m ON m.id = a.entity_id
+         WHERE a.created_at >= ? AND a.field = 'importance'
+         GROUP BY a.entity_id
+         ORDER BY total_delta DESC, changes DESC
+         LIMIT ?`,
+      )
+      .all(since, limit) as Array<{
+      entity_id: number;
+      subject: string;
+      predicate: string;
+      object: string;
+      changes: number;
+      total_delta: number;
+      dry_runs: number;
+      last_change: string;
+    }>;
+    const lastReason = this.db.prepare(
+      `SELECT reason FROM audit_log WHERE entity_id = ? AND field = 'importance' ORDER BY created_at DESC, id DESC LIMIT 1`,
+    );
+    return rows.map((r) => ({
+      entityId: r.entity_id,
+      subject: r.subject,
+      predicate: r.predicate,
+      object: r.object,
+      changes: r.changes,
+      totalDelta: r.total_delta,
+      dryRuns: r.dry_runs,
+      lastChange: r.last_change,
+      lastReason: (lastReason.get(r.entity_id) as { reason: string | null } | undefined)?.reason ?? null,
+    }));
   }
 
   addEpisode(input: { project: string; summary: string; provenance?: string }): { id: number } {    const now = new Date().toISOString();
