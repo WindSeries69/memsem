@@ -170,10 +170,47 @@ flowchart LR
 
 *Comparison as of Aug 2026, from public docs; capabilities evolve — verify before choosing.*
 
+## Command line
+
+Everything that can be done through MCP can be done from a terminal:
+
+```bash
+memsem list [--theme x] [--project p] [--limit n] [--all]   # read your memory
+memsem edit <id> [--object "..."] [--importance 0.6] [...]  # fix a fact by hand (audited)
+memsem forget <id> [--yes]                                  # archive a fact (confirm)
+memsem doctor [--limit n] [--hours h]                       # most-modified facts — spot drift
+memsem export [--output f] [--project p]                    # full JSON dump
+memsem import <file.json>                                   # restore / merge a dump
+memsem setup [--host opencode|claude]                       # install for your hosts
+```
+
+Manual fixes are written to the audit journal — `memsem doctor` shows them too.
+
+## Configuration
+
+Tunable constants (priority weights, thresholds, fade factors, model…) live in
+[`src/config.ts`](src/config.ts). Override any of them in `~/.memsem/config.json`
+(or `$MEMSEM_CONFIG`), deep-merged with validation:
+
+```json
+{ "priority": { "importance": 0.4, "confidence": 0.3 }, "minLexical": 0.4 }
+```
+
+Settings are documented and validated by a benchmark
+([`scripts/bench.mjs`](scripts/bench.mjs) — 51 facts, 20 queries, P@k/R@k across
+constant sets; results in [`DESIGN.md`](DESIGN.md) §11).
+
+## Durability
+
+The database is versioned and migrated automatically at startup (`schema_migrations`),
+with an automatic backup before any migration (`~/.memory-mcp/backups/`, last 5 kept).
+WAL mode is on — a crash mid-write leaves the database intact. Full dumps and
+restores via `memsem export` / `memsem import`.
+
 ## Documentation
 
 - [`memory-protocol.md`](memory-protocol.md) — the protocol injected into your AI: how it writes, searches, and maintains memory automatically.
-- [`DESIGN.md`](DESIGN.md) — full design: vision, principles, the lactose case study, roadmap.
+- [`DESIGN.md`](DESIGN.md) — full design: vision, principles, the lactose case study, constant calibration, roadmap.
 - [`scripts/demo.mjs`](scripts/demo.mjs) — reproduce the demo above on a throwaway database.
 
 ## Roadmap
@@ -182,6 +219,10 @@ flowchart LR
 - [x] Episodic memory + session extraction
 - [x] Hippocampus consolidation + pairwise scoring judge
 - [x] Universal opencode plugin + `memsem setup`
+- [x] Versioned migrations + automatic backup + export/import
+- [x] Configurable constants, validated by a benchmark
+- [x] Secure judge: dry-run, audit journal, guardrails, `memsem doctor`
+- [x] CLI: `list` / `edit` / `forget` — fix a fact by hand
 - [ ] Obsidian bridge: export/import memory as readable markdown notes
 - [ ] Multi-hop graph propagation
 

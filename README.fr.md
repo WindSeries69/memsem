@@ -170,10 +170,49 @@ flowchart LR
 
 *Comparaison au 2026-08, sur la base des docs publiques ; les fonctionnalités évoluent — vérifiez avant de choisir.*
 
+## Ligne de commande
+
+Tout ce qui se fait via MCP se fait depuis un terminal :
+
+```bash
+memsem list [--theme x] [--project p] [--limit n] [--all]   # lire sa mémoire
+memsem edit <id> [--object "..."] [--importance 0.6] [...]  # corriger un fait à la main (audité)
+memsem forget <id> [--yes]                                  # archiver un fait (confirmation)
+memsem doctor [--limit n] [--hours h]                       # faits les plus modifiés — repérer une dérive
+memsem export [--output f] [--project p]                    # dump JSON complet
+memsem import <fichier.json>                                # restaurer / fusionner un dump
+memsem setup [--host opencode|claude]                       # installer pour ses hôtes
+```
+
+Les corrections manuelles sont consignées dans le journal d'audit — `memsem doctor`
+les montre aussi.
+
+## Configuration
+
+Les constantes réglables (poids de priorité, seuils, facteurs d'estompage, modèle…)
+vivent dans [`src/config.ts`](src/config.ts). Surchargez-les dans
+`~/.memsem/config.json` (ou `$MEMSEM_CONFIG`), fusion partielle et validée :
+
+```json
+{ "priority": { "importance": 0.4, "confidence": 0.3 }, "minLexical": 0.4 }
+```
+
+Les réglages sont documentés et validés par un banc d'essai
+([`scripts/bench.mjs`](scripts/bench.mjs) — 51 faits, 20 requêtes, P@k/R@k sur
+plusieurs jeux de constantes ; résultats dans [`DESIGN.md`](DESIGN.md) §11).
+
+## Durabilité
+
+La base est versionnée et migrée automatiquement au démarrage
+(`schema_migrations`), avec backup automatique avant toute migration
+(`~/.memory-mcp/backups/`, les 5 derniers conservés). Le mode WAL est actif —
+un crash en pleine écriture laisse la base intacte. Sauvegarde et restauration
+complètes via `memsem export` / `memsem import`.
+
 ## Documentation
 
 - [`memory-protocol.md`](memory-protocol.md) — le protocole injecté à ton IA : comment elle écrit, cherche et entretient la mémoire automatiquement.
-- [`DESIGN.md`](DESIGN.md) — la conception complète : vision, principes, le cas d'école du lactose, feuille de route.
+- [`DESIGN.md`](DESIGN.md) — la conception complète : vision, principes, le cas d'école du lactose, calibration des constantes, feuille de route.
 - [`scripts/demo.mjs`](scripts/demo.mjs) — reproduire la démo ci-dessus sur une base jetable.
 
 ## Feuille de route
@@ -182,6 +221,10 @@ flowchart LR
 - [x] Mémoire épisodique + extraction de session
 - [x] Consolidation hippocampe + juge de scoring par paires
 - [x] Plugin opencode universel + `memsem setup`
+- [x] Migrations versionnées + backup automatique + export/import
+- [x] Constantes configurables, validées par un banc d'essai
+- [x] Juge sécurisé : dry-run, journal d'audit, garde-fous, `memsem doctor`
+- [x] CLI : `list` / `edit` / `forget` — corriger un fait à la main
 - [ ] Pont Obsidian : export/import de la mémoire en notes markdown lisibles
 - [ ] Propagation multi-sauts dans le graphe
 
