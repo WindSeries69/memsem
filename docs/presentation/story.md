@@ -38,7 +38,7 @@ Depuis, la mémoire contient sa propre histoire :
 ```
 projet memsem → a-plugin-opencode-universel → une ligne "plugin": ["memsem"] configure tout
 projet memsem → a-auto-installateur → memsem setup configure opencode et claude
-projet memsem → publie-sur-npm → memsem@1.0.1, engines node >= 22.13
+projet memsem → publie-sur-npm → memsem@1.1.0, engines node >= 22.13
 utilisateur → veut → sa memoire personnelle jamais commitee ni partagee
 ```
 

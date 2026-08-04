@@ -26,31 +26,62 @@
   <a href="https://www.npmjs.com/package/memsem"><img src="https://img.shields.io/npm/v/memsem" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/memsem" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D22.13-339933" alt="Node >= 22.13">
+  <a href="https://github.com/WindSeries69/memsem/actions"><img src="https://img.shields.io/github/actions/workflow/status/WindSeries69/memsem/ci.yml?branch=main&label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/MCP-server-1f1f1f" alt="MCP server">
   <img src="https://img.shields.io/badge/opencode-plugin-000" alt="opencode plugin">
 </p>
 
 > **Memória semântica para agentes de IA** — lembra o que importa, sabe o que esquecer.
-> Um comando para instalar. Funciona em *todos* os projetos, para *toda* IA. 100% local.
+> Um comando para instalar. Funciona em *todo* projeto, com *toda* IA. 100% local.
 
-## Por quê?
+## Porquê — quando já existem grandes sistemas de memória?
 
-Sua IA esquece tudo entre as sessões. `CLAUDE.md` é um arquivo estático — ele não aprende.
-Bancos de dados vetoriais são pesados e muitas vezes hospedados na nuvem. A maioria das ferramentas de "memória" é armazenamento passivo:
-guardam o que você joga nelas, nunca priorizam, nunca reconciliam contradições.
+Eles existem e acertaram nas partes difíceis: armazenamento vetorial (mem0), grafo
+de conhecimento temporal (Zep / Graphiti), frameworks de agentes (MemGPT / Letta).
+Mas todos partilham os mesmos três defeitos:
 
-**O memsem é diferente.** É um *sistema* de memória, não uma gaveta:
+1. **Armazenamento bruto, sem estrutura.** Guardam o que lhes atiras e a
+   recuperação é uma busca por similaridade sobre *tudo*. A IA não sabe
+   **onde procurar** — por isso procura em todo o lado, e o ruído afoga o sinal.
+2. **Sem precisão.** Uma correspondência difusa é uma correspondência difusa:
+   memórias quase-certas enchem o orçamento de contexto e desperdiçam tokens.
+3. **Sem autocorreção.** Um facto contradito há meses continua tão forte quanto
+   no dia em que foi escrito.
 
-- 🧠 **Escreve-se sozinho** — durante uma sessão, sua IA registra fatos duráveis (preferências, decisões, restrições) automaticamente. Chega de "lembra de salvar isso".
-- ⚖️ **Prioriza** — cada fato tem uma prioridade dinâmica (`importance × confidence × recency × frequency`). Quando o contexto está apertado, as memórias mais relevantes sempre vêm primeiro.
-- 🔄 **Lida com contradições** — "Bebo leite há anos… espera, sou intolerante à lactose." O fato antigo não é sobrescrito: ele *desvanece* progressivamente e é arquivado, com histórico completo preservado. Fatos críticos (importância ≥ 0.9) são protegidos.
-- 🔗 **Faz pontes entre conceitos** — um índice semântico local opcional (Ollama, na sua máquina) permite que `fromage` encontre `lactose` sem uma única palavra em comum.
-- 🕰️ **Tem memória episódica** — resumos de sessão por cima dos fatos semânticos, como os dois sistemas de memória de longo prazo do cérebro.
-- 🔧 **Mantém-se sozinho** — agentes de fundo consolidam fatos pequenos em padrões (o "hipocampo") e recalibram prioridades por comparação em pares, somente quando isso torna a memória *melhor de buscar*.
+O memsem corrige exatamente estas três coisas:
 
-## Veja funcionando
+- 🧭 **Ele sabe onde procurar.** Cada sessão começa com um cartão de roteamento
+  (`memory-index.md`): temas + palavras-chave, injetado no contexto. A IA
+  roteia por tema, atravessa projetos e só paga pelo que precisa.
+  Temas hierárquicos + uma lista de foco viva mantêm os ramos ativos da sessão
+  com prioridade total — o resto é atenuado, nunca perdido.
+- 🎯 **Ele é preciso.** Busca lexical estrita por padrão (limiar de 50% de
+  correspondência de palavras, sem propagação no grafo a menos que peças
+  explicitamente) — uma consulta devolve os factos certos, ordenados por
+  prioridade dinâmica
+  (`importance × confidence × recency × frequency`). A precisão é medida,
+  não assumida: **P@3 0.958** no benchmark de referência (51 factos, 20 consultas,
+  [`scripts/bench.mjs`](scripts/bench.mjs), resultados em
+  [`DESIGN.md`](DESIGN.md) §11).
+- 🔄 **Ele corrige-se a si próprio.** Contradições desvanecem o facto antigo em
+  vez de o sobrescrever ("bebi leite durante anos… espera, intolerante à lactose") —
+  o histórico é sempre mantido, factos críticos (≥ 0.9) são protegidos. Agentes
+  em segundo plano extraem factos duradouros no fim da sessão, consolidam pequenos
+  factos em padrões e recalibram prioridades — apenas quando a memória continua
+  *pelo menos tão* pesquisável.
 
-Instale uma vez, deixe rodar. Esta é uma sessão real em um banco de dados descartável — sua memória real nunca é tocada (`node scripts/demo.mjs`):
+Todas as promessas dos grandes sistemas, menos os seus defeitos: um comando,
+100% local, e a tua memória continua a ser tua — nunca é commitada,
+por utilizador, partilhada em todos os teus repositórios.
+
+## Vê-lo em ação
+
+Instala uma vez, deixa-o correr. Esta é uma sessão real numa base de dados
+descartável — a tua memória real nunca é tocada (`node scripts/demo.mjs`):
+
+<p align="center">
+  <img src="assets/demo.svg" alt="memsem demo — terminal output" width="860">
+</p>
 
 ```
 === memsem — demo on a temporary database ===
@@ -78,23 +109,23 @@ Instale uma vez, deixe rodar. Esta é uma sessão real em um banco de dados desc
 Stats: 5 active memories, semantic index OK (mxbai-embed-large)
 ```
 
-## Privacidade — sua memória é sua
+## Privacidade — a tua memória é tua
 
-- **100% local** — armazenada em `~/.memory-mcp/memory.db` na *sua* máquina. Sem nuvem, sem telemetria, nada sai do seu computador.
-- **Nunca é commitada** — o banco de dados vive fora de todos os repositórios. Clone um repo público, faça push de código, compartilhe capturas de tela: sua memória fica com você. Cada usuário tem a própria memória.
-- **A memória segue *você***, não seus projetos — a mesma base é compartilhada entre todos os seus repos. Crie uma nova pasta, um novo repo: a memória continua lá.
+- **100% local** — armazenada em `~/.memory-mcp/memory.db` na *tua* máquina. Sem cloud, sem telemetria, nada sai do teu computador.
+- **Nunca é commitada** — a base de dados vive fora de todos os repositórios. Clona um repositório público, faz push de código, partilha capturas de ecrã: a tua memória fica contigo. Cada utilizador tem a sua própria memória.
+- **A memória segue-te a *ti***, não aos teus projetos — a mesma base é partilhada em todos os teus repositórios. Cria uma nova pasta, um novo repositório: a memória continua lá.
 
 ## Instalação
 
 ### opencode — uma linha
 
-Adicione ao `opencode.json` (do projeto ou `~/.config/opencode/opencode.json`):
+Adiciona a `opencode.json` (do projeto ou de `~/.config/opencode/opencode.json`):
 
 ```json
 { "plugin": ["memsem"] }
 ```
 
-Pronto. O plugin registra o servidor MCP, injeta o protocolo de memória e o índice de memória em toda sessão, concede as permissões necessárias e roda os agentes de fundo. Reinicie o opencode.
+É isso. O plugin regista o servidor MCP, injeta o protocolo de memória e o índice de memória em cada sessão, concede as permissões necessárias e executa os agentes de segundo plano. Reinicia o opencode.
 
 ### Claude Code — um comando
 
@@ -102,11 +133,11 @@ Pronto. O plugin registra o servidor MCP, injeta o protocolo de memória e o ín
 npx -y memsem setup
 ```
 
-Isso registra o servidor MCP (`claude mcp add memory -- npx -y memsem`) e adiciona um bloco "memsem memory" ao `~/.claude/CLAUDE.md` apontando para o protocolo completo.
+Isto regista o servidor MCP (`claude mcp add memory -- npx -y memsem`) e adiciona um bloco "memsem memory" a `~/.claude/CLAUDE.md` que aponta para o protocolo completo.
 
-**Ou instale com IA**: basta colar no Claude:
+**Ou instala com IA**: basta colar no Claude:
 
-> Instale a memória persistente do memsem: execute `npx -y memsem setup`, leia `~/.memsem/memory-protocol.md` e aplique o protocolo.
+> Install the memsem persistent memory: run `npx -y memsem setup`, read `~/.memsem/memory-protocol.md`, and apply the protocol.
 
 ### Qualquer cliente MCP
 
@@ -114,13 +145,13 @@ Isso registra o servidor MCP (`claude mcp add memory -- npx -y memsem`) e adicio
 npx -y memsem
 ```
 
-O servidor fala MCP via stdio. Aponte qualquer host compatível com MCP para ele e injete `memory-protocol.md` nas instruções do host (por exemplo, como `AGENTS.md`) para tornar a IA autônoma.
+O servidor fala MCP sobre stdio. Aponta qualquer anfitrião compatível com MCP para ele e injeta `memory-protocol.md` nas instruções do anfitrião (por exemplo, como `AGENTS.md`) para tornar a IA autónoma.
 
 ### Instalador universal
 
 ```bash
-npx -y memsem setup        # detecta e configura seus hosts (opencode, Claude)
-npx -y memsem setup --help # veja as opções
+npx -y memsem setup        # detects and configures your hosts (opencode, Claude)
+npx -y memsem setup --help # see options
 ```
 
 Idempotente, seguro, reversível (`--uninstall`).
@@ -131,7 +162,7 @@ Idempotente, seguro, reversível (`--uninstall`).
   <img src="assets/architecture.svg" alt="memsem architecture" width="920">
 </p>
 
-**O ciclo de vida da memória** — todo fato segue o mesmo caminho:
+**O ciclo de vida da memória** — cada facto segue o mesmo caminho:
 
 ```mermaid
 flowchart LR
@@ -144,40 +175,83 @@ flowchart LR
     A --> J["pinned & critical (≥ 0.9) are protected"]
 ```
 
-- **Fatos atômicos** — cada memória é um trio `subject → predicate → object` com importância, confiança, frequência, tags, tema e procedência.
-- **Temas & foco** — temas hierárquicos (`food/drinks`) são o mapa de roteamento; uma busca por tema atravessa todos os projetos. A lista `focus` mantém os temas ativos da sessão com prioridade máxima.
-- **Prioridade dinâmica** — `0.45 × importance + 0.25 × confidence + 0.2 × recency + 0.1 × frequency`. Um fato crítico vence um padrão recorrente.
-- **Suplantação suave** — contradições desvanecem o fato antigo (a confiança decai) até que ele seja arquivado abaixo de um limite. O histórico é sempre mantido.
-- **Índice semântico (opcional)** — cada fato é incorporado localmente (`mxbai-embed-large` via Ollama); buscas com `relax: true` adicionam similaridade por cosseno (limiar 0.5). Sem Ollama, tudo funciona de forma idêntica — busca lexical estrita.
+- **Factos atómicos** — cada memória é um triplo `subject → predicate → object` com importância, confiança, frequência, tags, tema e proveniência.
+- **Temas & foco** — temas hierárquicos (`food/drinks`) são o mapa de roteamento; uma busca por tema atravessa todos os projetos. A lista `focus` mantém os temas ativos da sessão com prioridade total.
+- **Prioridade dinâmica** — `0.45 × importance + 0.25 × confidence + 0.2 × recency + 0.1 × frequency`. Um facto crítico vence um padrão recorrente.
+- **Substituição suave** — contradições desvanecem o facto antigo (a confiança decai) até ele ser arquivado sob um limiar. O histórico é sempre mantido.
+- **Índice semântico (opcional)** — cada facto é embutido localmente (`mxbai-embed-large` via Ollama); buscas com `relax: true` acrescentam similaridade por cosseno (limiar 0.5). Sem Ollama, tudo funciona de forma idêntica — busca lexical estrita.
 
 ## Comparação
 
-| | memsem | `CLAUDE.md` / notes | mem0 | Zep / Graphiti | official memory MCP | Obsidian as memory |
+| | memsem | `CLAUDE.md` / notas | mem0 | Zep / Graphiti | memory MCP oficial | Obsidian como memória |
 |---|---|---|---|---|---|---|
-| Auto-writes during sessions | ✅ | ❌ | ⚠️ via app code | ⚠️ | ❌ | ❌ |
-| Priority for context budget | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Contradictions (soft supersession) | ✅ | ❌ (overwrites) | ❌ (overwrites) | ❌ | ❌ | ❌ |
-| Semantic search, local & private | ✅ (Ollama) | ❌ | ⚠️ (needs vector DB) | ⚠️ (needs graph DB) | ❌ | ⚠️ (plugins) |
-| Episodic memory + self-maintenance | ✅ | ❌ | ❌ | ⚠️ | ❌ | ❌ |
-| One memory across all your repos | ✅ | ❌ (per project) | ⚠️ | ⚠️ | ❌ | ⚠️ (vault) |
-| Zero dependency, `npx -y` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| Human-readable / editable | ❌ | ✅ | ❌ | ❌ | ✅ (JSON) | ✅ |
+| Escrita automática durante as sessões | ✅ | ❌ | ⚠️ via código da app | ⚠️ via código da app | ❌ | ❌ |
+| Prioridade para o orçamento de contexto | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Contradições (substituição suave) | ✅ | ❌ (sobrescreve) | ❌ (sobrescreve) | ✅ (versionamento temporal) | ❌ | ❌ |
+| Busca semântica | ✅ local (Ollama) | ❌ | ✅ (armazenamento vetorial) | ✅ (grafo + embeddings) | ❌ | ⚠️ (plugins) |
+| Memória episódica + automanutenção | ✅ | ❌ | ⚠️ (extras episódicos) | ✅ (grafo de conhecimento temporal) | ❌ | ❌ |
+| Uma memória em todos os teus repositórios | ✅ | ❌ (por projeto) | ⚠️ (por configuração da app) | ⚠️ (por configuração da app) | ❌ | ⚠️ (vault) |
+| Zero dependências, `npx -y` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |
+| Legível / editável por humanos | ⚠️ (CLI list/edit) | ✅ | ❌ | ❌ | ✅ (JSON) | ✅ |
+
+*Comparação de ago. de 2026, com base em documentação pública; as capacidades evoluem — verifica antes de escolher.*
+
+## Linha de comando
+
+Tudo o que pode ser feito através do MCP pode ser feito a partir do terminal:
+
+```bash
+memsem list [--theme x] [--project p] [--limit n] [--all]   # read your memory
+memsem edit <id> [--object "..."] [--importance 0.6] [...]  # fix a fact by hand (audited)
+memsem forget <id> [--yes]                                  # archive a fact (confirm)
+memsem doctor [--limit n] [--hours h]                       # most-modified facts — spot drift
+memsem export [--output f] [--project p]                    # full JSON dump
+memsem import <file.json>                                   # restore / merge a dump
+memsem setup [--host opencode|claude]                       # install for your hosts
+```
+
+Correções manuais são escritas no diário de auditoria — `memsem doctor` também as mostra.
+
+## Configuração
+
+As constantes ajustáveis (pesos de prioridade, limiares, fatores de desvanecimento, modelo…) vivem em
+[`src/config.ts`](src/config.ts). Sobrescreve qualquer uma delas em `~/.memsem/config.json`
+(ou `$MEMSEM_CONFIG`), com fusão profunda e validação:
+
+```json
+{ "priority": { "importance": 0.4, "confidence": 0.3 }, "minLexical": 0.4 }
+```
+
+As definições são documentadas e validadas por um benchmark
+([`scripts/bench.mjs`](scripts/bench.mjs) — 51 factos, 20 consultas, P@k/R@k em
+conjuntos de constantes; resultados em [`DESIGN.md`](DESIGN.md) §11).
+
+## Durabilidade
+
+A base de dados é versionada e migrada automaticamente no arranque (`schema_migrations`),
+com uma cópia de segurança automática antes de qualquer migração (`~/.memory-mcp/backups/`, mantêm-se as últimas 5).
+O modo WAL está ativo — uma falha a meio de uma escrita deixa a base de dados intacta. Dumps completos e
+restauros via `memsem export` / `memsem import`.
 
 ## Documentação
 
-- [`memory-protocol.md`](memory-protocol.md) — o protocolo injetado na sua IA: como ela escreve, busca e mantém a memória automaticamente.
-- [`DESIGN.md`](DESIGN.md) — design completo: visão, princípios, o estudo de caso da lactose, roadmap.
-- [`scripts/demo.mjs`](scripts/demo.mjs) — reproduza a demonstração acima em um banco de dados descartável.
+- [`memory-protocol.md`](memory-protocol.md) — o protocolo injetado na tua IA: como ela escreve, pesquisa e mantém a memória automaticamente.
+- [`DESIGN.md`](DESIGN.md) — o design completo: visão, princípios, o estudo de caso da lactose, calibração de constantes, folha de rota.
+- [`scripts/demo.mjs`](scripts/demo.mjs) — reproduz a demo acima numa base de dados descartável.
 
-## Roadmap
+## Folha de rota
 
-- [x] Índice semântico (embeddings locais via Ollama)
-- [x] Memória episódica + extração de sessão
-- [x] Consolidação do hipocampo + juiz de pontuação em pares
-- [x] Plugin universal do opencode + `memsem setup`
-- [ ] Ponte Obsidian: exportar/importar memória como notas markdown legíveis
-- [ ] Propagação no grafo multi-hop
+- [x] Índice semântico (embeddings locais do Ollama)
+- [x] Memória episódica + extração de sessões
+- [x] Consolidação do hipocampo + juiz de avaliação por pares
+- [x] Plugin opencode universal + `memsem setup`
+- [x] Migrações versionadas + cópia de segurança automática + export/import
+- [x] Constantes configuráveis, validadas por um benchmark
+- [x] Juiz seguro: dry-run, diário de auditoria, salvaguardas, `memsem doctor`
+- [x] CLI: `list` / `edit` / `forget` — corrigir um facto à mão
+- [ ] Ponte para Obsidian: exportar/importar memória como notas markdown legíveis
+- [ ] Propagação multi-saltos no grafo
 
 ## Licença
 
-MIT — livre para qualquer uso. Sua memória continua sendo sua.
+MIT — livre para qualquer uso. A tua memória continua a ser tua.

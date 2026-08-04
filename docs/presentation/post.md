@@ -1,80 +1,95 @@
 # Le post de lancement memsem
 
 Un seul post. Pas de « Excited to announce », pas de pluie d'émojis, pas de hashtags.
-Une histoire, une preuve, un lien.
+Une posture : les gros systèmes existent, on a corrigé leurs défauts.
 
 ---
 
 ## Variante principale (FR) — LinkedIn / Dev.to / X long / blog
 
-Ton IA naît avec une amnésie.
+La mémoire d'IA n'est pas un problème que je viens de découvrir. mem0, Zep, MemGPT :
+des systèmes sérieux existent, avec des équipes et des fonds.
 
-Chaque nouvelle session, elle oublie qui tu es. Tes décisions d'hier, tes contraintes,
-ce que tu ne peux plus manger. Et pourtant le marché est plein d'« outils de mémoire » —
-mais la plupart sont des tiroirs : ils gardent, ils ne choisissent pas.
+Mais ils partagent tous trois défauts :
 
-Il y a deux jours, le serveur que je construisais est mort deux fois : une dépendance
-native absente au premier lancement, puis un index SQLite qui contredisait ma propre
-règle de supersession. Deux bugs que la conversation suivante aurait rejoués à l'infini —
-parce que rien ne les gardait.
+1. Ils stockent, ils ne structurent pas. La recherche est une similarité sur tout —
+   l'IA ne sait pas où chercher, alors elle cherche partout. Le bruit noie le signal.
+2. Ils ne sont pas précis. Un souvenir « presque juste » remplit le contexte,
+   gaspille des tokens, et finit par être cru.
+3. Ils ne se corrigent pas. Un fait contredit il y a six mois est resté aussi fort
+   que le jour où il a été écrit.
 
-J'ai fini par écrire la mémoire que je voulais avoir :
+J'ai écrit la mémoire qui corrige ces trois défauts :
 
-• Elle s'écrit pendant qu'on parle, en arrière-plan.
-• Elle priorise : importance × confiance × récence × fréquence — c'est le bon fait qui
-  entre dans le contexte, pas le plus récent.
-• Elle gère les contradictions : l'ancien fait s'estompe, le fait critique gagne,
-  l'historique reste.
-• Elle relie les concepts : « fromage » retrouve « lactose » sans un seul mot commun.
-• Elle reste chez toi : 100% locale, jamais commitée, une base pour tous tes projets.
+• Elle sait où chercher. Chaque session commence par une carte de routage (thèmes,
+  mots-clés) injectée dans le contexte. Elle route par thème, traverse tes projets,
+  ne paie que ce dont elle a besoin.
+• Elle est précise. Recherche stricte par défaut, pas de propagation sauvage. Et la
+  précision est mesurée, pas supposée : P@3 de 0.958 sur un banc de 51 faits et
+  20 requêtes — chaque jeu de constantes est comparé, le résultat est documenté.
+• Elle se corrige. Une contradiction fait s'estomper l'ancien fait au lieu de
+  l'écraser. L'historique reste. Les faits critiques (≥ 0.9) sont protégés. Et des
+  agents de fond consolident, recalibrent — seulement si la mémoire reste aussi
+  cherchable.
 
-La preuve la plus honnête : elle se souvient de sa propre naissance. Il y a deux jours,
-elle a consigné sa première mort manquée. Aucun autre outil de mémoire ne peut montrer ça.
+Le plus honnête : elle se souvient de sa propre naissance. Il y a une semaine, elle
+a consigné sa première mort manquée (un binaire natif absent au premier lancement).
+Aucun autre outil de mémoire ne peut montrer ça.
 
-memsem — mémoire sémantique pour agents IA. Une commande :
+Toutes les promesses des gros systèmes, sans leurs défauts. Une commande, 100% local,
+ta mémoire reste tienne — jamais commitée, chacun a la sienne.
+
+memsem — mémoire sémantique pour agents IA.
 npx -y memsem · opencode : "plugin": ["memsem"] · Claude : npx -y memsem setup
-
 github.com/WindSeries69/memsem
 
 ---
 
 ## Variante courte (X / Twitter)
 
-Ton IA naît avec une amnésie. On a réparé ça. 🧠
+Les gros systèmes de mémoire d'IA existent. Leurs défauts aussi :
+ils stockent sans structurer, ils ne sont pas précis, ils ne se corrigent pas.
 
-Elle s'écrit seule, priorise, gère les contradictions, reste 100% locale.
-La preuve : elle se souvient de sa propre naissance.
+memsem corrige les trois. 🧭 routage par thème · 🎯 recherche stricte, P@3 0.958 · 🔄 supersession douce
 
-npx -y memsem · opencode "plugin": ["memsem"]
-github.com/WindSeries69/memsem
+Une commande, 100% local. github.com/WindSeries69/memsem
 
 ---
 
 ## Variante EN (HN / Reddit / X international)
 
-Your AI was born with amnesia.
+Big memory systems for AI already exist — mem0, Zep, MemGPT. Serious projects,
+serious teams.
 
-Every new session it forgets who you are — yesterday's decisions, your constraints,
-the things you can no longer eat. The market is full of "memory tools", but most are
-drawers: they keep things, they don't choose.
+They share three flaws:
 
-Two days ago the server I was building died twice: a missing native dependency, then a
-SQLite index that contradicted my own supersession rule. Two bugs the next conversation
-would have replayed forever — because nothing was keeping them.
+1. They store, they don't structure. Retrieval is a similarity search over
+   *everything* — the AI doesn't know where to look, so it looks everywhere.
+   Noise drowns the signal.
+2. They aren't precise. An "almost right" memory fills the context, burns tokens,
+   and eventually gets believed.
+3. They don't correct themselves. A fact contradicted six months ago stands as
+   strong as the day it was written.
 
-So I wrote the memory I wanted to have:
+I wrote the memory that fixes exactly these three:
 
-• It writes itself while you talk, in the background.
-• It prioritizes: importance × confidence × recency × frequency — the right fact enters
-  the context, not the most recent one.
-• It handles contradictions: the old fact fades, the critical one wins, history stays.
-• It bridges concepts: "cheese" finds "lactose" without a single shared word.
-• It stays yours: 100% local, never committed, one base for all your repos.
+• It knows where to search. Every session starts with a routing card (themes +
+  keywords) injected into context. It routes by theme, crosses your projects,
+  pays only for what it needs.
+• It is precise. Strict lexical search by default, no wild propagation. Precision
+  is measured, not assumed: P@3 of 0.958 on a benchmark of 51 facts and 20 queries —
+  constant sets are compared, results are documented (DESIGN.md §11).
+• It corrects itself. Contradictions fade the old fact instead of overwriting.
+  History stays. Critical facts (≥ 0.9) are protected. Background agents
+  consolidate and recalibrate — only when the memory stays as searchable.
 
-The most honest proof: it remembers its own birth. Two days ago it logged its first
-near-death. No other memory tool can show that.
+The most honest proof: it remembers its own birth. A week ago it logged its first
+near-death (a missing native binary at first launch). No other memory tool can
+show that.
 
-memsem — semantic memory for AI agents. One command:
+All the big-system promises, minus their flaws. One command, 100% local, your
+memory stays yours — never committed, per-user.
+
+memsem — semantic memory for AI agents.
 npx -y memsem · opencode: "plugin": ["memsem"] · Claude: npx -y memsem setup
-
 github.com/WindSeries69/memsem

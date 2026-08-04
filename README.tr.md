@@ -26,31 +26,60 @@
   <a href="https://www.npmjs.com/package/memsem"><img src="https://img.shields.io/npm/v/memsem" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/memsem" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D22.13-339933" alt="Node >= 22.13">
+  <a href="https://github.com/WindSeries69/memsem/actions"><img src="https://img.shields.io/github/actions/workflow/status/WindSeries69/memsem/ci.yml?branch=main&label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/MCP-server-1f1f1f" alt="MCP server">
   <img src="https://img.shields.io/badge/opencode-plugin-000" alt="opencode plugin">
 </p>
 
-> **Yapay zeka ajanları için anlamsal bellek** — önemli olanı hatırlar, neyi unutması gerektiğini bilir.
-> Kurulumu tek komut. *Her* projede, *her* yapay zekada çalışır. %100 yerel.
+> **AI ajanları için anlamsal bellek** — önemli olanı hatırlar, neyi unutacağını bilir.
+> Kurulumu tek komut. *Her* projede, *her* AI ile çalışır. %100 yerel.
 
-## Neden?
+## Neden — büyük bellek sistemleri zaten varken?
 
-Yapay zekanız oturumlar arasında her şeyi unutur. `CLAUDE.md` statik bir dosyadır — öğrenemez.
-Vektör veritabanları ağırdır ve çoğunlukla bulut tabanlıdır. Çoğu "bellek" aracı pasif bir depodur:
-kendisine ne atarsanız onu saklar, asla önceliklendirmez, çelişkileri asla uzlaştırmaz.
+Varlar ve zor kısımları doğru yapıyorlar: vektör depoları (mem0), zamansal
+bilgi grafikleri (Zep / Graphiti), ajan çerçeveleri (MemGPT / Letta). Ama hepsi
+aynı üç kusuru paylaşıyor:
 
-**memsem farklıdır.** Bir çekmece değil, bir bellek *sistemi*dır:
+1. **Kör depolama, yapı yok.** Kendilerine atılan her şeyi saklarlar ve
+   erişim, *her şey* üzerinde bir benzerlik aramasıdır. AI **nereye
+   bakacağını** bilmez — bu yüzden her yere bakar ve gürültü sinyali boğar.
+2. **Kesinlik yok.** Bulanık bir eşleşme bulanık bir eşleşmedir: neredeyse
+   doğru anılar bağlam bütçesini doldurur ve token israf eder.
+3. **Kendi kendini düzeltme yok.** Aylar önce çelişilen bir gerçek, yazıldığı
+   günkü kadar güçlü kalır.
 
-- 🧠 **Kendini yazar** — oturum sırasında yapay zekanız kalıcı gerçekleri (tercihler, kararlar, kısıtlar) otomatik olarak kaydeder. "Bunu kaydetmeyi unutma" yok artık.
-- ⚖️ **Önceliklendirir** — her gerçeğin dinamik bir önceliği vardır (`önem × güven × güncellik × sıklık`). Bağlam daraldığında en alakalı anılar her zaman önce yüzeye çıkar.
-- 🔄 **Çelişkileri yönetir** — "Yıllardır süt içiyorum… dur, laktoz intoleransım var." Eski gerçek üzerine yazılmaz: kademeli olarak *solar* ve arşivlenir, tam geçmiş korunur. Kritik gerçekler (önem ≥ 0.9) koruma altındadır.
-- 🔗 **Kavramlar arasında köprü kurar** — isteğe bağlı yerel anlamsal dizin (Ollama, sizin makinenizde) `fromage` ile `lactose` arasında tek bir ortak kelime olmadan eşleşme sağlar.
-- 🕰️ **Epizodik belleği vardır** — anlamsal gerçeklerin üzerine oturum özetleri, beynin iki uzun süreli sistemi gibi.
-- 🔧 **Kendini bakımda tutar** — arka plan ajanları küçük gerçekleri kalıplara dönüştürür ("hipokampus") ve öncelikleri ikili karşılaştırmayla yeniden kalibre eder, yalnızca belleği *aranabilir kıldığı* zaman.
+memsem tam olarak bu üç şeyi düzeltir:
+
+- 🧭 **Nereye bakacağını bilir.** Her oturum bir yönlendirme kartıyla başlar
+  (`memory-index.md`): temalar + anahtar kelimeler, bağlama enjekte edilir. AI
+  temaya göre yönlendirir, projeler arasında geçer ve yalnızca ihtiyacı
+  kadarını öder. Hiyerarşik temalar + canlı bir odak listesi, oturumun aktif
+  dallarını tam öncelikte tutar — geri kalanı zayıflatılır, asla kaybedilmez.
+- 🎯 **Kesindir.** Varsayılan olarak katı sözcüksel arama (%50 kelime eşleşme
+  eşiği, açıkça istemedikçe grafik yayılımı yok) — bir sorgu, doğru gerçekleri
+  dinamik önceliğe göre sıralanmış halde döndürür
+  (`importance × confidence × recency × frequency`). Kesinlik varsayılmaz,
+  ölçülür: referans kıyaslamasında **P@3 0.958** (51 gerçek, 20 sorgu,
+  [`scripts/bench.mjs`](scripts/bench.mjs), sonuçlar
+  [`DESIGN.md`](DESIGN.md) §11).
+- 🔄 **Kendini düzeltir.** Çelişkiler eski gerçeği üzerine yazmak yerine
+  soldurur ("Yıllarca süt içtim… bir dakika, laktoz intoleransım var") —
+  geçmiş her zaman korunur, kritik gerçekler (≥ 0.9) koruma altındadır. Arka
+  plan ajanları oturum sonunda kalıcı gerçekleri çıkarır, küçük gerçekleri
+  örüntüler halinde birleştirir ve öncelikleri yeniden kalibre eder — yalnızca
+  bellek *en az onun kadar aranabilir* kaldığı sürece.
+
+Büyük sistemlerin tüm vaatleri, kusurları olmadan: tek komut, %100 yerel ve
+belleğiniz sizin kalır — asla commit edilmez, kullanıcıya özeldir, tüm
+repolarınız arasında paylaşılır.
 
 ## Çalışırken görün
 
-Bir kez kurun, çalışmaya bırakın. Bu, geçici bir veritabanında gerçek bir oturumdur — gerçek belleğinize asla dokunulmaz (`node scripts/demo.mjs`):
+Bir kez kurun, çalışsın. Bu, atılabilir bir veritabanında gerçek bir oturum — gerçek belleğinize asla dokunulmaz (`node scripts/demo.mjs`):
+
+<p align="center">
+  <img src="assets/demo.svg" alt="memsem demo — terminal output" width="860">
+</p>
 
 ```
 === memsem — demo on a temporary database ===
@@ -78,11 +107,11 @@ Bir kez kurun, çalışmaya bırakın. Bu, geçici bir veritabanında gerçek bi
 Stats: 5 active memories, semantic index OK (mxbai-embed-large)
 ```
 
-## Gizlilik — bellek sizindir
+## Gizlilik — belleğiniz sizindir
 
-- **%100 yerel** — *sizin* makinenizde `~/.memory-mcp/memory.db` içinde saklanır. Bulut yok, telemetri yok, hiçbir şey bilgisayarınızdan çıkmaz.
-- **Asla taahhüt edilmez** — veritabanı her deponun dışında yaşar. Açık bir depoyu klonlayın, kod gönderin, ekran görüntüsü paylaşın: belleğiniz sizinle kalır. Her kullanıcının kendi belleği vardır.
-- **Bellek projelerinizi değil *sizi* takip eder** — aynı veritabanı tüm depolarınız arasında paylaşılır. Yeni bir klasör açın, yeni bir depo: bellek hâlâ oradadır.
+- **%100 yerel** — `~/.memory-mcp/memory.db` içinde *sizin* makinenizde saklanır. Bulut yok, telemetri yok, hiçbir şey bilgisayarınızdan çıkmaz.
+- **Asla commit edilmez** — veritabanı her deponun dışında yaşar. Halka açık bir repoyu klonlayın, kod push edin, ekran görüntüsü paylaşın: belleğiniz sizde kalır. Her kullanıcının kendi belleği vardır.
+- **Bellek *sizi* izler**, projelerinizi değil — aynı veritabanı tüm repolarınız arasında paylaşılır. Yeni bir klasör, yeni bir repo oluşturun: bellek hâlâ oradadır.
 
 ## Kurulum
 
@@ -94,7 +123,7 @@ Stats: 5 active memories, semantic index OK (mxbai-embed-large)
 { "plugin": ["memsem"] }
 ```
 
-Hepsi bu. Eklenti MCP sunucusunu kaydeder, her oturuma bellek protokolünü ve bellek dizinini enjekte eder, gerekli izinleri verir ve arka plan ajanlarını çalıştırır. opencode'u yeniden başlatın.
+Bu kadar. Eklenti MCP sunucusunu kaydeder, bellek protokolünü ve bellek indeksini her oturuma enjekte eder, gereken izinleri verir ve arka plan ajanlarını çalıştırır. opencode'u yeniden başlatın.
 
 ### Claude Code — tek komut
 
@@ -104,9 +133,9 @@ npx -y memsem setup
 
 Bu, MCP sunucusunu kaydeder (`claude mcp add memory -- npx -y memsem`) ve tam protokole işaret eden bir "memsem memory" bloğunu `~/.claude/CLAUDE.md` dosyasına ekler.
 
-**Ya da yapay zekayla kurun**: sadece Claude'a yapıştırın:
+**Ya da AI ile kurun**: sadece Claude'a yapıştırın:
 
-> Install the memsem persistent memory: run `npx -y memsem setup`, read `~/.memsem/memory-protocol.md`, and apply the protocol.
+> memsem kalıcı belleğini kur: `npx -y memsem setup` çalıştırın, `~/.memsem/memory-protocol.md` dosyasını okuyun ve protokolü uygulayın.
 
 ### Herhangi bir MCP istemcisi
 
@@ -114,13 +143,13 @@ Bu, MCP sunucusunu kaydeder (`claude mcp add memory -- npx -y memsem`) ve tam pr
 npx -y memsem
 ```
 
-Sunucu, stdio üzerinden MCP konuşur. MCP destekleyen herhangi bir ana bilgisayarı buna yönlendirin ve yapay zekayı otonom kılmak için `memory-protocol.md` dosyasını ana bilgisayarın talimatlarına enjekte edin (ör. `AGENTS.md` olarak).
+Sunucu, stdio üzerinden MCP konuşur. MCP destekleyen herhangi bir ana bilgisayarı buna yönlendirin ve AI'ı özerk hale getirmek için `memory-protocol.md` dosyasını ana bilgisayarın talimatlarına (ör. `AGENTS.md` olarak) enjekte edin.
 
-### Evrensel yükleyici
+### Evrensel kurulum
 
 ```bash
-npx -y memsem setup        # detects and configures your hosts (opencode, Claude)
-npx -y memsem setup --help # see options
+npx -y memsem setup        # ana bilgisayarlarınızı algılar ve yapılandırır (opencode, Claude)
+npx -y memsem setup --help # seçenekleri görün
 ```
 
 Idempotent, güvenli, geri alınabilir (`--uninstall`).
@@ -144,39 +173,75 @@ flowchart LR
     A --> J["pinned & critical (≥ 0.9) are protected"]
 ```
 
-- **Atomik gerçekler** — her bellek, önem, güven, sıklık, etiketler, tema ve kaynak (provenance) içeren bir `subject → predicate → object` üçlüsüdür.
-- **Temalar ve odak** — hiyerarşik temalar (`food/drinks`) yönlendirme haritasıdır; temaya göre arama tüm projeleri keser. `focus` listesi, oturumun aktif temalarını tam öncelikte tutar.
-- **Dinamik öncelik** — `0.45 × importance + 0.25 × confidence + 0.2 × recency + 0.1 × frequency`. Kritik bir gerçek, yinelenen bir kalıbı yener.
-- **Yumuşak değişim (soft supersession)** — çelişkiler eski gerçeği soldurur (güven azalır), ta ki bir eşiğin altında arşivlenene dek. Geçmiş her zaman korunur.
-- **Anlamsal dizin (isteğe bağlı)** — her gerçek yerel olarak vektörleştirilir (`mxbai-embed-large` Ollama aracılığıyla); `relax: true` aramaları kosinüs benzerliği ekler (eşik 0.5). Ollama olmadan her şey aynen çalışır — katı sözcüksel arama.
+- **Atomik gerçekler** — her bellek, önem, güven, sıklık, etiketler, tema ve kaynak içeren bir `subject → predicate → object` üçlüsüdür.
+- **Temalar ve odak** — hiyerarşik temalar (`food/drinks`) yönlendirme haritasıdır; temaya göre yapılan arama tüm projeleri kapsar. `focus` listesi, oturumun aktif temalarını tam öncelikte tutar.
+- **Dinamik öncelik** — `0.45 × importance + 0.25 × confidence + 0.2 × recency + 0.1 × frequency`. Kritik bir gerçek, tekrarlayan bir örüntüyü yener.
+- **Yumuşak ikame** — çelişkiler eski gerçeği soldurur (güven azalır), bir eşiğin altında arşivlenene kadar. Geçmiş her zaman korunur.
+- **Anlamsal indeks (isteğe bağlı)** — her gerçek yerel olarak gömülür (`mxbai-embed-large`, Ollama aracılığıyla); `relax: true` aramaları kosinüs benzerliği ekler (eşik 0.5). Ollama olmadan her şey aynı şekilde çalışır — katı sözcüksel arama.
 
 ## Karşılaştırma
 
-| | memsem | `CLAUDE.md` / notlar | mem0 | Zep / Graphiti | resmi memory MCP | Obsidian bellek olarak |
+| | memsem | `CLAUDE.md` / notlar | mem0 | Zep / Graphiti | official memory MCP | Obsidian as memory |
 |---|---|---|---|---|---|---|
-| Oturumlar sırasında otomatik yazma | ✅ | ❌ | ⚠️ uygulama koduyla | ⚠️ | ❌ | ❌ |
-| Bağlam bütçesi için önceliklendirme | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Çelişkiler (yumuşak değişim) | ✅ | ❌ (üzerine yazar) | ❌ (üzerine yazar) | ❌ | ❌ | ❌ |
-| Anlamsal arama, yerel ve özel | ✅ (Ollama) | ❌ | ⚠️ (vektör DB gerekir) | ⚠️ (graf DB gerekir) | ❌ | ⚠️ (eklentiler) |
-| Epizodik bellek + kendi kendine bakım | ✅ | ❌ | ❌ | ⚠️ | ❌ | ❌ |
-| Tüm depolarınız arasında tek bellek | ✅ | ❌ (proje başına) | ⚠️ | ⚠️ | ❌ | ⚠️ (vault) |
+| Oturumlar sırasında otomatik yazım | ✅ | ❌ | ⚠️ uygulama koduyla | ⚠️ uygulama koduyla | ❌ | ❌ |
+| Bağlam bütçesi için öncelik | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Çelişkiler (yumuşak ikame) | ✅ | ❌ (üzerine yazar) | ❌ (üzerine yazar) | ✅ (zamansal sürümleme) | ❌ | ❌ |
+| Anlamsal arama | ✅ yerel (Ollama) | ❌ | ✅ (vektör deposu) | ✅ (grafik + gömmeler) | ❌ | ⚠️ (eklentiler) |
+| Epizodik bellek + kendi kendine bakım | ✅ | ❌ | ⚠️ (epizodik eklentiler) | ✅ (zamansal bilgi grafiği) | ❌ | ❌ |
+| Tüm repolarınızda tek bellek | ✅ | ❌ (proje başına) | ⚠️ (uygulama başına yapılandırma) | ⚠️ (uygulama başına yapılandırma) | ❌ | ⚠️ (vault) |
 | Sıfır bağımlılık, `npx -y` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| İnsan tarafından okunabilir / düzenlenebilir | ❌ | ✅ | ❌ | ❌ | ✅ (JSON) | ✅ |
+| İnsan tarafından okunabilir / düzenlenebilir | ⚠️ (CLI list/edit) | ✅ | ❌ | ❌ | ✅ (JSON) | ✅ |
+
+*Karşılaştırma Aug 2026 itibarıyla, herkese açık dokümanlardan alınmıştır; yetenekler gelişir — seçmeden önce doğrulayın.*
+
+## Komut satırı
+
+MCP üzerinden yapılabilen her şey bir terminalden yapılabilir:
+
+```bash
+memsem list [--theme x] [--project p] [--limit n] [--all]   # read your memory
+memsem edit <id> [--object "..."] [--importance 0.6] [...]  # fix a fact by hand (audited)
+memsem forget <id> [--yes]                                  # archive a fact (confirm)
+memsem doctor [--limit n] [--hours h]                       # most-modified facts — spot drift
+memsem export [--output f] [--project p]                    # full JSON dump
+memsem import <file.json>                                   # restore / merge a dump
+memsem setup [--host opencode|claude]                       # install for your hosts
+```
+
+Manuel düzeltmeler denetim günlüğüne yazılır — `memsem doctor` onları da gösterir.
+
+## Yapılandırma
+
+Ayarlanabilir sabitler (öncelik ağırlıkları, eşikler, solma faktörleri, model…) [`src/config.ts`](src/config.ts) içinde yaşar. Bunlardan herhangi birini `~/.memsem/config.json` (veya `$MEMSEM_CONFIG`) içinde geçersiz kılabilirsiniz; doğrulamayla derin birleştirme yapılır:
+
+```json
+{ "priority": { "importance": 0.4, "confidence": 0.3 }, "minLexical": 0.4 }
+```
+
+Ayarlar bir kıyaslama tarafından belgelenir ve doğrulanır ([`scripts/bench.mjs`](scripts/bench.mjs) — 51 gerçek, 20 sorgu, sabit kümeleri arasında P@k/R@k; sonuçlar [`DESIGN.md`](DESIGN.md) §11).
+
+## Dayanıklılık
+
+Veritabanı sürümlenir ve başlangıçta otomatik olarak taşınır (`schema_migrations`), her taşımadan önce otomatik bir yedek alınır (`~/.memory-mcp/backups/`, son 5 tutulur). WAL modu açıktır — yazma sırasında bir çökme veritabanını bozulmamış bırakır. Tam dökümler ve geri yüklemeler `memsem export` / `memsem import` ile yapılır.
 
 ## Dokümantasyon
 
-- [`memory-protocol.md`](memory-protocol.md) — yapay zekanıza enjekte edilen protokol: belleği nasıl otomatik olarak yazdığı, aradığı ve bakımını yaptığı.
-- [`DESIGN.md`](DESIGN.md) — tam tasarım: vizyon, ilkeler, laktoz vaka çalışması, yol haritası.
-- [`scripts/demo.mjs`](scripts/demo.mjs) — yukarıdaki demoyu geçici bir veritabanında yeniden üretin.
+- [`memory-protocol.md`](memory-protocol.md) — AI'ınıza enjekte edilen protokol: belleği otomatik olarak nasıl yazdığı, aradığı ve koruduğu.
+- [`DESIGN.md`](DESIGN.md) — tam tasarım: vizyon, ilkeler, laktoz vaka çalışması, sabit kalibrasyonu, yol haritası.
+- [`scripts/demo.mjs`](scripts/demo.mjs) — yukarıdaki demoyu atılabilir bir veritabanında yeniden üretir.
 
 ## Yol haritası
 
-- [x] Anlamsal dizin (yerel Ollama vektörleştirmeleri)
+- [x] Anlamsal indeks (yerel Ollama gömmeleri)
 - [x] Epizodik bellek + oturum çıkarımı
-- [x] Hipokampus birleştirme + ikili karşılaştırma puanlama yargıcı
+- [x] Hipokampus konsolidasyonu + ikili puanlama yargıcı
 - [x] Evrensel opencode eklentisi + `memsem setup`
-- [ ] Obsidian köprüsü: belleği okunabilir markdown notları olarak dışa/içe aktar
-- [ ] Çok adımlı (multi-hop) graf yayılımı
+- [x] Sürümlü taşımalar + otomatik yedek + dışa/içe aktarma
+- [x] Bir kıyaslamayla doğrulanan yapılandırılabilir sabitler
+- [x] Güvenli yargıç: kuru çalıştırma, denetim günlüğü, güvenlik korkulukları, `memsem doctor`
+- [x] CLI: `list` / `edit` / `forget` — bir gerçeği elle düzeltin
+- [ ] Obsidian köprüsü: belleği okunabilir markdown notları olarak dışa/içe aktarma
+- [ ] Çok atlamalı grafik yayılımı
 
 ## Lisans
 

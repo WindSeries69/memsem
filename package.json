@@ -1,6 +1,6 @@
 {
   "name": "memsem",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "description": "Mémoire sémantique persistante et priorisée pour IA (serveur MCP universel)",
   "keywords": [

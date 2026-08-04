@@ -26,6 +26,7 @@
   <a href="https://www.npmjs.com/package/memsem"><img src="https://img.shields.io/npm/v/memsem" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/memsem" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D22.13-339933" alt="Node >= 22.13">
+  <a href="https://github.com/WindSeries69/memsem/actions"><img src="https://img.shields.io/github/actions/workflow/status/WindSeries69/memsem/ci.yml?branch=main&label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/MCP-server-1f1f1f" alt="MCP server">
   <img src="https://img.shields.io/badge/opencode-plugin-000" alt="opencode plugin">
 </p>
@@ -33,24 +34,51 @@
 > **Bộ nhớ ngữ nghĩa cho các tác nhân AI** — ghi nhớ những gì quan trọng, biết cách quên.
 > Một lệnh để cài đặt. Hoạt động trong *mọi* dự án, cho *mọi* AI. 100% cục bộ.
 
-## Tại sao?
+## Tại sao — khi các hệ thống bộ nhớ lớn đã tồn tại?
 
-AI của bạn quên mọi thứ giữa các phiên làm việc. `CLAUDE.md` là một tệp tĩnh — nó không thể học hỏi.
-Các cơ sở dữ liệu vector thì nặng nề và thường chạy trên đám mây. Hầu hết các công cụ "bộ nhớ" chỉ là nơi lưu trữ thụ động:
-chúng giữ những gì bạn ném vào, không bao giờ ưu tiên, không bao giờ dung hòa các mâu thuẫn.
+Chúng tồn tại, và chúng đã làm đúng những phần khó: lưu trữ vector (mem0),
+đồ thị tri thức theo thời gian (Zep / Graphiti), các framework tác nhân (MemGPT / Letta).
+Nhưng tất cả đều có chung ba khiếm khuyết:
 
-**memsem thì khác.** Đây là một *hệ thống* bộ nhớ, không phải một ngăn kéo:
+1. **Lưu trữ thô, không có cấu trúc.** Chúng giữ những gì bạn ném vào, và việc
+   truy xuất là một phép tìm kiếm tương đồng trên *mọi thứ*. AI không biết
+   **tìm ở đâu** — nên nó tìm khắp nơi, và nhiễu làm át tín hiệu.
+2. **Không chính xác.** Khớp mờ là khớp mờ: những ký ức gần đúng lấp đầy ngân sách
+   ngữ cảnh và lãng phí token.
+3. **Không tự sửa chữa.** Một sự kiện bị mâu thuẫn từ nhiều tháng trước vẫn mạnh
+   như ngày nó được ghi.
 
-- 🧠 **Tự ghi** — trong một phiên, AI của bạn tự động ghi lại các sự kiện bền vững (sở thích, quyết định, ràng buộc). Không còn kiểu "nhớ lưu cái này nhé".
-- ⚖️ **Ưu tiên hóa** — mỗi sự kiện có một mức ưu tiên động (`importance × confidence × recency × frequency`). Khi ngữ cảnh chật hẹp, những ký ức liên quan nhất luôn hiện lên đầu tiên.
-- 🔄 **Xử lý mâu thuẫn** — "Tôi đã uống sữa nhiều năm… khoan, tôi bất dung nạp lactose." Sự kiện cũ không bị ghi đè: nó *mờ dần* một cách tiến dần rồi được lưu trữ, với toàn bộ lịch sử được giữ nguyên. Các sự kiện quan trọng (importance ≥ 0.9) được bảo vệ.
-- 🔗 **Kết nối các khái niệm** — một chỉ mục ngữ nghĩa cục bộ tùy chọn (Ollama, trên máy của bạn) giúp `fromage` tìm thấy `lactose` mà không cần một từ chung nào.
-- 🕰️ **Có ký ức tình tiết (episodic)** — tóm tắt phiên nằm trên các sự kiện ngữ nghĩa, giống như hai hệ thống trí nhớ dài hạn của não bộ.
-- 🔧 **Tự bảo trì** — các tác nhân nền gộp các sự kiện nhỏ thành các khuôn mẫu ("hippocampus") và hiệu chỉnh lại mức ưu tiên bằng cách so sánh từng cặp, chỉ khi điều đó làm cho bộ nhớ *dễ tìm kiếm hơn*.
+memsem sửa chính xác ba điều này:
+
+- 🧭 **Nó biết tìm ở đâu.** Mỗi phiên bắt đầu bằng một thẻ định tuyến
+  (`memory-index.md`): chủ đề + từ khóa, được tiêm vào ngữ cảnh. AI định
+  tuyến theo chủ đề, đi xuyên qua các dự án và chỉ trả chi phí cho những gì nó cần.
+  Các chủ đề phân cấp + một danh sách focus sống giữ các nhánh đang hoạt động của
+  phiên ở mức ưu tiên tối đa — phần còn lại bị giảm nhẹ, không bao giờ mất.
+- 🎯 **Nó chính xác.** Tìm kiếm từ vựng nghiêm ngặt theo mặc định (ngưỡng khớp 50% số
+  từ, không lan truyền đồ thị trừ khi bạn yêu cầu rõ ràng) — một truy vấn trả về
+  các sự kiện đúng, xếp hạng theo ưu tiên động
+  (`importance × confidence × recency × frequency`). Độ chính xác được đo,
+  không phải giả định: **P@3 0.958** trên điểm chuẩn tham chiếu (51 sự kiện, 20 truy vấn,
+  [`scripts/bench.mjs`](scripts/bench.mjs), kết quả trong
+  [`DESIGN.md`](DESIGN.md) §11).
+- 🔄 **Nó tự sửa mình.** Các mâu thuẫn làm mờ sự kiện cũ thay vì ghi đè nó
+  ("Tôi đã uống sữa nhiều năm… khoan, bất dung nạp lactose") — lịch sử
+  luôn được giữ, các sự kiện quan trọng (≥ 0.9) được bảo vệ. Các tác nhân nền
+  trích xuất các sự kiện bền vững khi kết thúc phiên, gộp các sự kiện nhỏ thành các
+  khuôn mẫu và hiệu chỉnh lại mức ưu tiên — chỉ khi bộ nhớ vẫn *dễ tìm kiếm ít nhất như trước*.
+
+Tất cả những lời hứa của các hệ thống lớn, trừ đi những khiếm khuyết của chúng:
+một lệnh, 100% cục bộ, và bộ nhớ của bạn vẫn là của bạn — không bao giờ được
+commit, theo từng người dùng, được chia sẻ trên tất cả các repo của bạn.
 
 ## Xem cách hoạt động
 
 Cài đặt một lần, để nó tự chạy. Đây là một phiên thực trên cơ sở dữ liệu dùng một lần — bộ nhớ thật của bạn không bao giờ bị động đến (`node scripts/demo.mjs`):
+
+<p align="center">
+  <img src="assets/demo.svg" alt="memsem demo — terminal output" width="860">
+</p>
 
 ```
 === memsem — demo on a temporary database ===
@@ -154,19 +182,58 @@ flowchart LR
 
 | | memsem | `CLAUDE.md` / notes | mem0 | Zep / Graphiti | official memory MCP | Obsidian as memory |
 |---|---|---|---|---|---|---|
-| Tự ghi trong các phiên | ✅ | ❌ | ⚠️ qua mã ứng dụng | ⚠️ | ❌ | ❌ |
+| Tự ghi trong các phiên | ✅ | ❌ | ⚠️ qua mã ứng dụng | ⚠️ qua mã ứng dụng | ❌ | ❌ |
 | Ưu tiên cho ngân sách ngữ cảnh | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Mâu thuẫn (thay thế mềm) | ✅ | ❌ (ghi đè) | ❌ (ghi đè) | ❌ | ❌ | ❌ |
-| Tìm kiếm ngữ nghĩa, cục bộ & riêng tư | ✅ (Ollama) | ❌ | ⚠️ (cần vector DB) | ⚠️ (cần graph DB) | ❌ | ⚠️ (plugin) |
-| Ký ức tình tiết + tự bảo trì | ✅ | ❌ | ❌ | ⚠️ | ❌ | ❌ |
-| Một bộ nhớ dùng chung mọi repo | ✅ | ❌ (theo dự án) | ⚠️ | ⚠️ | ❌ | ⚠️ (vault) |
+| Mâu thuẫn (thay thế mềm) | ✅ | ❌ (ghi đè) | ❌ (ghi đè) | ✅ (phiên bản theo thời gian) | ❌ | ❌ |
+| Tìm kiếm ngữ nghĩa | ✅ cục bộ (Ollama) | ❌ | ✅ (lưu trữ vector) | ✅ (đồ thị + nhúng) | ❌ | ⚠️ (plugin) |
+| Ký ức tình tiết + tự bảo trì | ✅ | ❌ | ⚠️ (tiện ích bổ sung episodic) | ✅ (đồ thị tri thức theo thời gian) | ❌ | ❌ |
+| Một bộ nhớ dùng chung mọi repo | ✅ | ❌ (theo dự án) | ⚠️ (theo cấu hình ứng dụng) | ⚠️ (theo cấu hình ứng dụng) | ❌ | ⚠️ (vault) |
 | Không phụ thuộc, `npx -y` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| Dễ đọc / chỉnh sửa bằng người | ❌ | ✅ | ❌ | ❌ | ✅ (JSON) | ✅ |
+| Dễ đọc / chỉnh sửa bằng người | ⚠️ (CLI list/edit) | ✅ | ❌ | ❌ | ✅ (JSON) | ✅ |
+
+*So sánh tính đến tháng 8 năm 2026, dựa trên tài liệu công khai; khả năng có thể phát triển — hãy kiểm chứng trước khi lựa chọn.*
+
+## Dòng lệnh
+
+Mọi thứ có thể làm qua MCP đều có thể làm từ terminal:
+
+```bash
+memsem list [--theme x] [--project p] [--limit n] [--all]   # read your memory
+memsem edit <id> [--object "..."] [--importance 0.6] [...]  # fix a fact by hand (audited)
+memsem forget <id> [--yes]                                  # archive a fact (confirm)
+memsem doctor [--limit n] [--hours h]                       # most-modified facts — spot drift
+memsem export [--output f] [--project p]                    # full JSON dump
+memsem import <file.json>                                   # restore / merge a dump
+memsem setup [--host opencode|claude]                       # install for your hosts
+```
+
+Các chỉnh sửa thủ công được ghi vào nhật ký kiểm toán — `memsem doctor` cũng hiển thị chúng.
+
+## Cấu hình
+
+Các hằng số có thể điều chỉnh (trọng số ưu tiên, ngưỡng, hệ số mờ dần, mô hình…) nằm trong
+[`src/config.ts`](src/config.ts). Bạn có thể ghi đè bất kỳ hằng số nào trong `~/.memsem/config.json`
+(hoặc `$MEMSEM_CONFIG`), được hợp nhất sâu kèm kiểm tra hợp lệ:
+
+```json
+{ "priority": { "importance": 0.4, "confidence": 0.3 }, "minLexical": 0.4 }
+```
+
+Các cài đặt được ghi chép và kiểm chứng bằng một điểm chuẩn
+([`scripts/bench.mjs`](scripts/bench.mjs) — 51 sự kiện, 20 truy vấn, P@k/R@k trên các bộ
+hằng số; kết quả trong [`DESIGN.md`](DESIGN.md) §11).
+
+## Độ bền
+
+Cơ sở dữ liệu được quản lý phiên bản và di trú tự động khi khởi động (`schema_migrations`),
+với bản sao lưu tự động trước mọi lần di trú (`~/.memory-mcp/backups/`, giữ 5 bản gần nhất).
+Chế độ WAL được bật — sự cố giữa chừng khi ghi vẫn để lại cơ sở dữ liệu nguyên vẹn.
+Xuất và khôi phục toàn bộ qua `memsem export` / `memsem import`.
 
 ## Tài liệu
 
 - [`memory-protocol.md`](memory-protocol.md) — giao thức được tiêm vào AI của bạn: cách nó tự động ghi, tìm kiếm và duy trì bộ nhớ.
-- [`DESIGN.md`](DESIGN.md) — thiết kế đầy đủ: tầm nhìn, nguyên tắc, nghiên cứu tình huống lactose, lộ trình phát triển.
+- [`DESIGN.md`](DESIGN.md) — thiết kế đầy đủ: tầm nhìn, nguyên tắc, nghiên cứu tình huống lactose, hiệu chỉnh hằng số, lộ trình phát triển.
 - [`scripts/demo.mjs`](scripts/demo.mjs) — tái hiện bản demo ở trên trên một cơ sở dữ liệu dùng một lần.
 
 ## Lộ trình
@@ -175,6 +242,10 @@ flowchart LR
 - [x] Ký ức tình tiết + trích xuất phiên
 - [x] Gộp hippocampus + bộ đánh giá chấm điểm từng cặp
 - [x] Plugin opencode phổ quát + `memsem setup`
+- [x] Di trú theo phiên bản + sao lưu tự động + xuất/nhập
+- [x] Các hằng số có thể cấu hình, kiểm chứng bằng điểm chuẩn
+- [x] Bộ đánh giá an toàn: chạy thử (dry-run), nhật ký kiểm toán, lan can an toàn, `memsem doctor`
+- [x] CLI: `list` / `edit` / `forget` — chỉnh sửa sự kiện bằng tay
 - [ ] Cầu nối Obsidian: xuất/nhập bộ nhớ dưới dạng ghi chú markdown dễ đọc
 - [ ] Lan truyền đồ thị đa chặng (multi-hop)
 

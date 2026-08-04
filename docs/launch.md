@@ -4,9 +4,9 @@ Tout pour faire tester et découvrir memsem. Chaque texte est prêt à copier-co
 
 ## Checklist avant lancement
 
-- [ ] `npm publish` (1.0.0) — actuellement bloqué par la 2FA npm
-- [ ] CI verte sur GitHub (badge « build » dans le README)
-- [ ] Release GitHub `v1.0.0` (notes de version)
+- [x] `npm publish` (1.1.0) — public sur npm (windseries)
+- [x] CI verte sur GitHub (badge « build » dans le README)
+- [ ] Release GitHub `v1.1.0` (notes de version)
 - [ ] Lancer `node scripts/demo.mjs` soi-même pour avoir les chiffres frais
 
 ---
