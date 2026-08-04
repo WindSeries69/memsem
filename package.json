@@ -36,7 +36,10 @@
   "files": [
     "dist/*.js",
     "opencode-plugin",
+    "assets",
+    "scripts",
     "README.md",
+    "README.fr.md",
     "DESIGN.md",
     "memory-protocol.md"
   ],

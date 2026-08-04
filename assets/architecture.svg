@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="470" viewBox="0 0 920 470" role="img" aria-label="memsem architecture">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#131920"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+
+  <rect width="920" height="470" fill="url(#bg)" rx="12"/>
+
+  <!-- Your AI -->
+  <rect x="40" y="40" width="220" height="120" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="150" y="70" text-anchor="middle" font-family="system-ui, sans-serif" font-size="15" font-weight="700" fill="#e6edf3">Your AI</text>
+  <text x="150" y="92" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#8b949e">any MCP host</text>
+  <text x="150" y="114" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11" fill="#79c0ff">opencode · Claude Code</text>
+  <text x="150" y="134" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11" fill="#79c0ff">· any MCP client ·</text>
+  <text x="150" y="152" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10.5" fill="#8b949e">writes &amp; asks without thinking about it</text>
+
+  <!-- memsem server -->
+  <rect x="330" y="40" width="250" height="120" rx="10" fill="#161b22" stroke="#a371f7" stroke-width="1.5"/>
+  <text x="455" y="70" text-anchor="middle" font-family="system-ui, sans-serif" font-size="15" font-weight="700" fill="#d2a8ff">memsem</text>
+  <text x="455" y="90" text-anchor="middle" font-family="ui-monospace, monospace" font-size="11" fill="#8b949e">npx -y memsem (MCP stdio)</text>
+  <text x="455" y="112" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10.5" fill="#79c0ff">memory_add · memory_search</text>
+  <text x="455" y="130" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10.5" fill="#79c0ff">memory_list · memory_stats</text>
+  <text x="455" y="148" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10.5" fill="#79c0ff">memory_episode_* · memory_score</text>
+
+  <!-- index card -->
+  <rect x="650" y="40" width="230" height="120" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="765" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#e6edf3">memory-index.md</text>
+  <text x="765" y="90" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#8b949e">the routing card, injected</text>
+  <text x="765" y="108" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#8b949e">into every session</text>
+  <text x="765" y="130" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" fill="#79c0ff">themes + keywords + pinned</text>
+  <text x="765" y="148" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#8b949e">knows where to look — cheap context</text>
+
+  <!-- db core -->
+  <rect x="330" y="210" width="550" height="130" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="605" y="238" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#e6edf3">memory.db — SQLite, on your machine only</text>
+  <rect x="360" y="252" width="150" height="72" rx="8" fill="#0d1117" stroke="#30363d"/>
+  <text x="435" y="274" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#79c0ff">atomic facts</text>
+  <text x="435" y="292" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" fill="#8b949e">subject → predicate → object</text>
+  <text x="435" y="309" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" fill="#8b949e">importance · confidence · freq</text>
+  <rect x="530" y="252" width="150" height="72" rx="8" fill="#0d1117" stroke="#30363d"/>
+  <text x="605" y="274" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#79c0ff">semantic graph</text>
+  <text x="605" y="292" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" fill="#8b949e">edges: related facts</text>
+  <text x="605" y="309" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" fill="#8b949e">2-hop activation (relax)</text>
+  <rect x="700" y="252" width="155" height="72" rx="8" fill="#0d1117" stroke="#30363d"/>
+  <text x="777" y="274" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#79c0ff">embeddings</text>
+  <text x="777" y="292" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" fill="#8b949e">Ollama · mxbai-embed-large</text>
+  <text x="777" y="309" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9.5" fill="#8b949e">optional · stays local</text>
+
+  <!-- arrows between top row -->
+  <line x1="260" y1="100" x2="330" y2="100" stroke="#8b949e" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="580" y1="100" x2="650" y2="100" stroke="#8b949e" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="580" y1="160" x2="655" y2="210" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+  <!-- background agents -->
+  <rect x="40" y="330" width="240" height="100" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="160" y="356" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#e6edf3">Extraction</text>
+  <text x="160" y="378" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10.5" fill="#8b949e">on session idle: rewrites the</text>
+  <text x="160" y="394" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10.5" fill="#8b949e">conversation into durable facts</text>
+  <text x="160" y="410" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" fill="#79c0ff">+ session episode</text>
+
+  <rect x="310" y="330" width="240" height="100" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="430" y="356" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#e6edf3">Hippocampus</text>
+  <text x="430" y="378" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10.5" fill="#8b949e">every 6h: merges small facts</text>
+  <text x="430" y="394" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10.5" fill="#8b949e">into patterns — only if the</text>
+  <text x="430" y="410" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" fill="#79c0ff">search stays as good</text>
+
+  <rect x="580" y="330" width="300" height="100" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="730" y="356" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#e6edf3">Judge</text>
+  <text x="730" y="378" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10.5" fill="#8b949e">every 6h: recalibrates priorities</text>
+  <text x="730" y="394" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10.5" fill="#8b949e">by pairwise comparison —</text>
+  <text x="730" y="410" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" fill="#79c0ff">pinned &amp; critical never touched</text>
+
+  <line x1="280" y1="380" x2="330" y2="340" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+  <line x1="550" y1="380" x2="580" y2="340" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+  <line x1="605" y1="330" x2="605" y2="342" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <text x="605" y="460" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10.5" fill="#8b949e">everything runs as background sub-agents — nothing blocks your session, nothing leaves your machine</text>
+</svg>
