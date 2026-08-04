@@ -8,20 +8,26 @@ import path from "node:path";
 import { MemoryDb } from "./db.js";
 import { ollamaAvailable, EMBED_MODEL } from "./embed.js";
 
-// Mode auto-installation : `npx -y memsem setup` configure l'hôte IA (opencode, claude).
+const dbPath = process.env.MEMORY_DB_PATH ?? path.join(process.env.HOME ?? ".", ".memory-mcp", "memory.db");
+
+// Modes CLI : `npx -y memsem <commande>`.
 if (process.argv[2] === "setup") {
   const { runSetup } = await import("./setup.js");
   await runSetup(process.argv.slice(3));
   process.exit(0);
 }
+if (["export", "import", "doctor", "list", "edit", "forget"].includes(process.argv[2])) {
+  const { runCli } = await import("./cli.js");
+  runCli(process.argv.slice(2), dbPath);
+  process.exit(0);
+}
+
+const defaultProject = process.env.MEMORY_PROJECT ?? "global";
+const indexPath = process.env.MEMSEM_INDEX_PATH ?? path.join(os.homedir(), ".memsem", "memory-index.md");
 
 const pkg = JSON.parse(
   fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ) as { version: string };
-
-const dbPath = process.env.MEMORY_DB_PATH ?? path.join(process.env.HOME ?? ".", ".memory-mcp", "memory.db");
-const defaultProject = process.env.MEMORY_PROJECT ?? "global";
-const indexPath = process.env.MEMSEM_INDEX_PATH ?? path.join(os.homedir(), ".memsem", "memory-index.md");
 
 const db = new MemoryDb(dbPath);
 
