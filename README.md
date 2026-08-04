@@ -38,25 +38,26 @@ Install once, let it run. This is a real session on a throwaway database — you
 
 ```
 === memsem — demo on a temporary database ===
+(your real memory in ~/.memory-mcp stays untouched)
 
 1. The AI writes durable facts (memory_add_many)
    → 4 facts written
 
-2. Strict search (lexical): memory_search { query: 'lait' }
-   → utilisateur → boit → lait
+2. Strict search (lexical): memory_search { query: 'milk' }
+   → user → drinks → milk
 
-3. Semantic search (relax, local embeddings): memory_search { query: 'fromage', relax: true }
+3. Semantic search (relax, local embeddings): memory_search { query: 'cheese', relax: true }
    No shared word with « lactose » — the local semantic index (Ollama) bridges it
-   → lactose → est-present-dans → fromage, yaourt, creme
-   → utilisateur → devient-intolerant-a → lactose
-   → utilisateur → boit → lait
+   → lactose → is-present-in → cheese, yogurt, cream
+   → user → is-intolerant-to → lactose
+   → user → drinks → milk
 
 4. Soft supersession: the AI learns you no longer drink milk
    → conflict: true, old fact faded (faded: [1])
 
 5. Search now returns the current fact
-   → utilisateur → boit → plus de lait (intolerant au lactose)
-   → utilisateur → boit → lait
+   → user → drinks → no more milk (lactose intolerant)
+   → user → drinks → milk
 
 Stats: 5 active memories, semantic index OK (mxbai-embed-large)
 ```
@@ -128,7 +129,7 @@ flowchart LR
 ```
 
 - **Atomic facts** — every memory is a `subject → predicate → object` triple with importance, confidence, frequency, tags, theme, provenance.
-- **Themes & focus** — hierarchical themes (`alimentation/boissons`) are the routing map; a search by theme crosses all projects. The `focus` list keeps the session's active themes at full priority.
+- **Themes & focus** — hierarchical themes (`food/drinks`) are the routing map; a search by theme crosses all projects. The `focus` list keeps the session's active themes at full priority.
 - **Dynamic priority** — `0.45 × importance + 0.25 × confidence + 0.2 × recency + 0.1 × frequency`. A critical fact beats a recurring pattern.
 - **Soft supersession** — contradictions fade the old fact (confidence decays) until it archives under a threshold. History is always kept.
 - **Semantic index (optional)** — each fact is embedded locally (`mxbai-embed-large` via Ollama); `relax: true` searches add cosine similarity (threshold 0.5). Without Ollama, everything works identically — strict lexical search.
