@@ -153,6 +153,14 @@ function createV1Db(filePath: string): void {
   const second = src.add({ subject: "utilisateur", predicate: "boit", object: "lait", project: "global" });
   src.add({ subject: "utilisateur", predicate: "boit", object: "plus de lait", importance: 0.9, theme: "sante", project: "global" });
   src.addEpisode({ project: "global", summary: "episode de test export", provenance: "sess-export" });
+  const candidate = src.addCandidate({
+    subject: "utilisateur",
+    predicate: "evite",
+    object: "valeur rejetee",
+    project: "global",
+    evidence: "decision export",
+  });
+  src.reviewCandidate(candidate.id, "reject", "rejet export");
   src.forget(second.id);
   const payload = src.exportJSON();
   src.close();
@@ -166,12 +174,15 @@ function createV1Db(filePath: string): void {
   assert(!all.some((m) => m.object === "lait"), "fait archive reste archive (absent des actives)");
   const episodes = dst.episodeSearch(null, null, 10);
   assert(episodes.some((e) => e.summary === "episode de test export"), "episode importe");
+  assert(result.candidates === 1 && result.suppressions === 1, "revue et suppressions importees");
+  const blocked = dst.add({ subject: "utilisateur", predicate: "evite", object: "valeur rejetee", project: "global" });
+  assert(blocked.rejected === true, "suppression importee bloque la reintroduction");
   const stats = dst.stats();
   assert(stats.memoriesArchived === 1, "archive compte dans les stats apres import");
 
   // Re-import : idempotent (aucun doublon).
   const again = dst.importJSON(payload);
-  assert(again.memories === 0 && again.episodes === 0, "re-import sans doublon");
+  assert(again.memories === 0 && again.episodes === 0 && again.candidates === 0 && again.suppressions === 0, "re-import sans doublon");
   dst.close();
 }
 

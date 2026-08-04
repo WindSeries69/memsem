@@ -9,7 +9,7 @@ git clone https://github.com/WindSeries69/memsem.git
 cd memsem
 npm install
 npm run build     # tsc → dist/ + regenerates opencode-plugin/memsem-extract.ts
-npm test          # build + 49 integration tests (server over MCP stdio, temp DB)
+npm test          # build + integration/durability/governance suites (temp DB)
 ```
 
 Requirements: Node >= 22.13. Tests run fully offline (no Ollama needed).
@@ -19,12 +19,13 @@ Requirements: Node >= 22.13. Tests run fully offline (no Ollama needed).
 | Path | What it is |
 | --- | --- |
 | `src/index.ts` | MCP server entry (also dispatches `memsem setup`) |
-| `src/db.ts` | SQLite layer: facts, supersession, graph, themes, episodes |
+| `src/db.ts` | SQLite layer: facts, supersession, graph, themes, episodes, evidence, temporal scope |
 | `src/scoring.ts` | Priority rules (pure functions) |
 | `src/embed.ts` | Optional semantic index (Ollama) |
 | `src/plugin.ts` | Universal opencode plugin (MCP + instructions + background agents) |
 | `src/setup.ts` | `memsem setup` / `--uninstall` |
 | `src/test/client-test.ts` | Integration tests over real MCP transport |
+| `src/test/governance-test.ts` | Adverse-case tests: scope, review, suppression, purge, audit, asOf |
 | `scripts/demo.mjs` | Reproducible demo on a throwaway database |
 
 ## Important design rules

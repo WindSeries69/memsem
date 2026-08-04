@@ -1,4 +1,4 @@
-// Commandes CLI de memsem : export / import / doctor / list / edit / forget.
+// Commandes CLI de memsem : export / import / doctor / list / edit / forget / purge.
 // Dispatch depuis src/index.ts (process.argv[2]).
 import fs from "node:fs";
 import path from "node:path";
@@ -36,7 +36,7 @@ function runList(args: string[], dbPath: string): void {
         .filter(Boolean)
         .join(" ");
       console.log(
-        `#${String(r.id).padEnd(4)} imp ${r.importance.toFixed(2)} conf ${r.confidence.toFixed(2)} ${flags.padEnd(24)} ${r.subject} → ${r.predicate} → ${r.object}`,
+        `#${String(r.id).padEnd(4)} imp ${r.importance.toFixed(2)} conf ${r.confidence.toFixed(2)} ${r.trust.padEnd(9)} ${flags.padEnd(24)} ${r.subject} → ${r.predicate} → ${r.object}`,
       );
     }
     if (filtered.length > limit) console.log(`… et ${filtered.length - limit} autres (--limit pour tout voir)`);
@@ -133,6 +133,31 @@ function runForget(args: string[], dbPath: string): void {
   }
 }
 
+function runPurge(args: string[], dbPath: string): void {
+  const id = Number(args[0]);
+  if (!Number.isInteger(id) || id <= 0) {
+    console.error("Usage: memsem purge <id> [--yes]");
+    process.exit(1);
+  }
+  const db = new MemoryDb(dbPath);
+  try {
+    const row = db.get(id);
+    if (!row) {
+      console.error(`Fait #${id} introuvable.`);
+      process.exit(1);
+    }
+    console.log(`Fait #${id} : ${row.subject} → ${row.predicate} → ${row.object}`);
+    if (!confirm("Purger définitivement ce fait et son historique ?")) {
+      console.log("Annulé.");
+      return;
+    }
+    if (db.purge(id, "cli-purge")) console.log(`Fait #${id} purgé.`);
+    else console.error(`Fait #${id} introuvable.`);
+  } finally {
+    db.close();
+  }
+}
+
 function runExport(args: string[], dbPath: string): void {
   const project = argValue(args, "project") ?? null;
   const output = argValue(args, "output");
@@ -189,6 +214,9 @@ function runImport(args: string[], dbPath: string): void {
     console.log(
       `Import: ${result.memories} faits, ${result.history} historiques, ${result.edges} aretes, ${result.episodes} episodes`,
     );
+    if (result.candidates || result.suppressions) {
+      console.log(`Revue: ${result.candidates} candidats, ${result.suppressions} suppressions`);
+    }
   } finally {
     db.close();
   }
@@ -209,9 +237,11 @@ export function runCli(args: string[], dbPath: string): void {
       return runEdit(args.slice(1), dbPath);
     case "forget":
       return runForget(args.slice(1), dbPath);
+    case "purge":
+      return runPurge(args.slice(1), dbPath);
     default:
       console.error(`Commande inconnue: ${cmd}`);
-      console.error("Commandes: setup, export, import, doctor, list, edit, forget");
+      console.error("Commandes: setup, export, import, doctor, list, edit, forget, purge");
       process.exit(1);
   }
 }

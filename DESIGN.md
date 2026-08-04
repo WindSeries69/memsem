@@ -161,17 +161,29 @@ Implémenté et testé par la suite d'intégration, de durabilité et de régres
 
 - Serveur MCP TypeScript (`src/index.ts`), transport stdio, nom `memsem`
 - SQLite local (`src/db.ts`) : `memories` (triplets + importance/confiance/
-  fréquence/projet/provenance), `memory_history` (supersession), `edges`
-  (graphe), `episodes` (résumés de sessions + provenance), `memory_fts`
+  fréquence/projet/provenance + trust/evidence + validité temporelle),
+  `memory_history` (supersession + preuve historique), `edges` (graphe),
+  `episodes` (résumés de sessions + provenance), `memory_candidates` et
+  `memory_suppressions` (revue humaine/write gate), `audit_log`, `memory_fts`
   (index lexical FTS5 synchronisé par triggers)
 - Outils : `memory_add`, `memory_add_many`, `memory_search`, `memory_list`,
   `memory_themes`, `memory_stats`, `memory_index`, `memory_episode_add`,
-  `memory_episode_search`, `memory_score`, `memory_forget`
+  `memory_episode_search`, `memory_score`, `memory_candidate_add`,
+  `memory_candidate_list`, `memory_candidate_review`, `memory_audit`,
+  `memory_verify`, `memory_unsuppress`, `memory_forget`, `memory_purge`
 - Priorité par règles : `0.45×importance + 0.25×confiance + 0.2×récence +
   0.1×fréquence` (demi-vie : 7 jours)
 - Supersession fonctionnelle : objet changé → estompage puis archivage +
   boost de confiance ; clés sujet/prédicat insensibles à la casse et
   résurrection qui estompe aussi la contradiction active
+- **Preuve et temps** : chaque fait peut distinguer `inferred`, `verbatim` et
+  `verified`, conserver une évidence courte et une provenance ; `recorded_at`
+  est séparé de `valid_from` / `valid_until`, récupérables avec `asOf`
+- **Scope explicite** : un projet fourni isole la recherche, même avec un
+  thème ; `crossProject: true` est requis pour franchir cette frontière
+- **Revue et effacement** : les candidats restent hors retrieval jusqu'à
+  approbation, un rejet bloque la valeur normalisée, `forget` archive et
+  `purge` supprime réellement le contenu avec une trace auditée redacted
 - Graphe : arêtes sur sujet partagé ou chaînes objet==sujet (lait → lactose →
   fromage), propagation **2 sauts** en mode relax (boost ×0.3 par saut)
 - Projet par défaut : `global` — la base vit dans `~/.memory-mcp/memory.db`,
@@ -227,6 +239,20 @@ Implémenté et testé par la suite d'intégration, de durabilité et de régres
 - [x] **Présence globale** — plugin opencode universel (`"plugin": ["memsem"]`),
       `memsem setup` pour opencode + Claude Code (MCP + CLAUDE.md), base par
       utilisateur partagée entre tous les repos, jamais commitée
+- [x] **Contrat de preuve** — niveaux `inferred` / `verbatim` / `verified`,
+      évidence, provenance conservée dans les recherches, historiques et
+      exports/imports
+- [x] **Validité bi-temporelle** — `recorded_at`, `valid_from`, `valid_until`,
+      recherche historique avec `asOf`
+- [x] **Scope explicite** — isolation projet par défaut ; franchissement
+      inter-projets opt-in avec `crossProject: true`
+- [x] **Revue humaine** — candidats `pending`, approbation, rejet durable et
+      write gate anti-réintroduction
+- [x] **Audit et purge** — journal lisible via MCP, archivage logique séparé
+      de la purge irréversible confirmée
+- [x] **Évaluations négatives** — suite de gouvernance couvrant la
+      réaffirmation bloquée, la fuite de scope, la revalidation, la purge et
+      l'import/export ; verts sur base temporelle et clone propre
 
 ## 11. Constantes et calibration (résultat du banc d'essai)
 
@@ -284,3 +310,7 @@ déterministe, exécuté à chaque `npm test`.
   un fait critique — qui gagne ?
 - Granularité du projet : répertoire courant, ou détection de la racine du
   repo (git) ?
+- P2 (différés faute d'usage réel démontré) : ancres de code avec drift,
+  vérifications externes hors-ligne (gh, jobs), receipts signés, index
+  vectoriel natif. Le chemin `memory_verify` couvre déjà la vérification
+  humaine/externe sans dépendance.

@@ -84,6 +84,11 @@ const dbPath = path.join(tmpDir, "cli.db");
   assert(list.stdout.includes("pates fraiches"), "cli edit: correction visible au list");
   const bad = runCli(["edit", "9999", "--object", "x"]);
   assert(bad.status === 1, "cli edit: id inconnu → erreur");
+  const purged = runCli(["purge", String(id), "--yes"]);
+  assert(purged.status === 0 && purged.stdout.includes("purgé"), "cli purge --yes: effacement confirmé");
+  const afterPurge = new MemoryDb(dbPath);
+  assert(afterPurge.get(id) === null, "cli purge: contenu supprimé");
+  afterPurge.close();
 }
 
 fs.rmSync(tmpDir, { recursive: true, force: true });

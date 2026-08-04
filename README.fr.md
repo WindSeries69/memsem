@@ -174,11 +174,13 @@ flowchart LR
     A --> J["épinglées et critiques (≥ 0.9) sont protégées"]
 ```
 
-- **Faits atomiques** — chaque mémoire est un triplet `sujet → prédicat → objet` avec importance, confiance, fréquence, tags, thème, provenance.
+- **Faits atomiques** — chaque mémoire est un triplet `sujet → prédicat → objet` avec importance, confiance, fréquence, tags, thème, provenance, confiance déclarée et preuve.
 - **Thèmes & focus** — les thèmes hiérarchiques (`alimentation/boissons`) sont la carte de routage ; une recherche par thème traverse tous les projets. La liste `focus` garde les thèmes actifs de la session en pleine priorité.
 - **Priorité dynamique** — `0.45 × importance + 0.25 × confiance + 0.2 × récence + 0.1 × fréquence`. Un fait critique bat un pattern récurrent.
 - **Supersession douce** — les contradictions estompent l'ancien fait (confiance en baisse) jusqu'à l'archivage sous un seuil. L'historique est toujours conservé.
 - **Index sémantique (optionnel)** — chaque fait est embarqué localement (`mxbai-embed-large` via Ollama) ; les recherches `relax: true` ajoutent la similarité cosinus (seuil 0.5). Sans Ollama, tout fonctionne à l'identique — recherche lexicale stricte.
+- **Preuve et temps** — les niveaux `inferred`, `verbatim` et `verified` conservent une preuve courte ; `recorded_at` est séparé de `valid_from` / `valid_until`, avec recherche historique `asOf`.
+- **Revue et scope** — les faits incertains peuvent rester `pending`, un rejet bloque leur valeur normalisée, l'isolation par projet est la règle et le franchissement inter-projets est explicite.
 
 ## Comparatif
 
@@ -202,7 +204,8 @@ Tout ce qui se fait via MCP se fait depuis un terminal :
 ```bash
 memsem list [--theme x] [--project p] [--limit n] [--all]   # lire sa mémoire
 memsem edit <id> [--object "..."] [--importance 0.6] [...]  # corriger un fait à la main (audité)
-memsem forget <id> [--yes]                                  # archiver un fait (confirmation)
+  memsem forget <id> [--yes]                                  # archiver un fait (confirmation)
+  memsem purge <id> [--yes]                                   # effacer définitivement un fait (confirmation)
 memsem doctor [--limit n] [--hours h]                       # faits les plus modifiés — repérer une dérive
 memsem export [--output f] [--project p]                    # dump JSON complet
 memsem import <fichier.json>                                # restaurer / fusionner un dump
@@ -250,6 +253,7 @@ complètes via `memsem export` / `memsem import`.
 - [x] Constantes configurables, validées par un banc d'essai
 - [x] Juge sécurisé : dry-run, journal d'audit, garde-fous, `memsem doctor`
 - [x] CLI : `list` / `edit` / `forget` — corriger un fait à la main
+- [x] Contrat de preuve, validité temporelle, revue humaine, audit et purge confirmée
 - [ ] Pont Obsidian : export/import de la mémoire en notes markdown lisibles
 - [ ] Propagation multi-sauts dans le graphe
 

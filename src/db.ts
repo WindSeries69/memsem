@@ -16,11 +16,33 @@ export interface MemoryRecord {
   frequency: number;
   project: string;
   provenance: string | null;
+  trust: MemoryTrust;
+  evidence: string | null;
+  recordedAt: string;
+  validFrom: string | null;
+  validUntil: string | null;
   createdAt: string;
   updatedAt: string;
   archived: boolean;
   pinned: boolean;
   theme: string | null;
+}
+
+export type MemoryTrust = "inferred" | "verbatim" | "verified";
+
+const TRUST_RANK: Record<MemoryTrust, number> = { inferred: 0, verbatim: 1, verified: 2 };
+
+function normalizeTrust(value: string | undefined): MemoryTrust {
+  if (value === undefined) return "inferred";
+  if (value === "inferred" || value === "verbatim" || value === "verified") return value;
+  throw new Error(`trust invalide: ${value}`);
+}
+
+function normalizeDate(value: string | undefined, field: string): string | null {
+  if (value === undefined || value === null || value.trim() === "") return null;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) throw new Error(`${field} invalide: ${value}`);
+  return new Date(time).toISOString();
 }
 
 export interface AddInput {
@@ -32,6 +54,10 @@ export interface AddInput {
   theme?: string;
   project: string;
   provenance?: string;
+  trust?: MemoryTrust;
+  evidence?: string;
+  validFrom?: string;
+  validUntil?: string;
   pin?: boolean;
 }
 
@@ -46,6 +72,8 @@ export interface AddResult {
   faded: number[];
   archived: number[];
   history: Array<{ previous: string; changedAt: string }>;
+  rejected?: boolean;
+  rejectionReason?: string;
 }
 
 export interface SearchHit {
@@ -59,6 +87,13 @@ export interface SearchHit {
   frequency: number;
   pinned: boolean;
   theme: string | null;
+  project: string;
+  provenance: string | null;
+  trust: MemoryTrust;
+  evidence: string | null;
+  recordedAt: string;
+  validFrom: string | null;
+  validUntil: string | null;
   priority: number;
   score: number;
 }
@@ -74,10 +109,38 @@ interface MemoryKeyRow {
   frequency: number;
   pinned: number;
   archived: number;
+  provenance: string | null;
+  trust: MemoryTrust;
+  evidence: string | null;
+  recorded_at: string | null;
+  valid_from: string | null;
+  valid_until: string | null;
+}
+
+export interface CandidateInput extends Omit<AddInput, "pin"> {}
+
+export interface MemoryCandidate {
+  id: number;
+  subject: string;
+  predicate: string;
+  object: string;
+  tags: string[];
+  importance: number;
+  theme: string | null;
+  project: string;
+  provenance: string | null;
+  trust: MemoryTrust;
+  evidence: string | null;
+  validFrom: string | null;
+  validUntil: string | null;
+  status: "pending" | "approved" | "rejected";
+  rejectionReason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
 }
 
 function normalizeKey(value: string): string {
-  return value.toLowerCase().trim();
+  return value.normalize("NFKC").toLowerCase().trim();
 }
 
 function ftsQuery(text: string): string {
@@ -222,6 +285,74 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    name: "evidence-temporal",
+    up: (db) => {
+      for (const alter of [
+        `ALTER TABLE memories ADD COLUMN trust TEXT NOT NULL DEFAULT 'inferred'`,
+        `ALTER TABLE memories ADD COLUMN evidence TEXT`,
+        `ALTER TABLE memories ADD COLUMN recorded_at TEXT`,
+        `ALTER TABLE memories ADD COLUMN valid_from TEXT`,
+        `ALTER TABLE memories ADD COLUMN valid_until TEXT`,
+        `ALTER TABLE memory_history ADD COLUMN previous_trust TEXT`,
+        `ALTER TABLE memory_history ADD COLUMN previous_evidence TEXT`,
+        `ALTER TABLE memory_history ADD COLUMN previous_valid_from TEXT`,
+        `ALTER TABLE memory_history ADD COLUMN previous_valid_until TEXT`,
+        `ALTER TABLE memory_history ADD COLUMN recorded_at TEXT`,
+      ]) {
+        try {
+          db.exec(alter);
+        } catch {
+          // colonne déjà présente (base existante) — idempotent
+        }
+      }
+      db.exec(`UPDATE memories SET recorded_at = COALESCE(recorded_at, created_at)`);
+      db.exec(`UPDATE memory_history SET recorded_at = COALESCE(recorded_at, changed_at)`);
+    },
+  },
+  {
+    version: 6,
+    name: "review-suppressions",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS memory_candidates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          subject TEXT NOT NULL,
+          predicate TEXT NOT NULL,
+          object TEXT NOT NULL,
+          tags TEXT NOT NULL DEFAULT '[]',
+          importance REAL NOT NULL DEFAULT 0.5,
+          theme TEXT,
+          project TEXT NOT NULL DEFAULT '',
+          provenance TEXT,
+          trust TEXT NOT NULL DEFAULT 'inferred',
+          evidence TEXT,
+          valid_from TEXT,
+          valid_until TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          rejection_reason TEXT,
+          created_at TEXT NOT NULL,
+          reviewed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_candidates_status ON memory_candidates(project, status, created_at);
+        CREATE TABLE IF NOT EXISTS memory_suppressions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          subject_key TEXT NOT NULL,
+          predicate_key TEXT NOT NULL,
+          object_key TEXT NOT NULL,
+          project TEXT NOT NULL DEFAULT '',
+          reason TEXT,
+          source_candidate_id INTEGER,
+          created_at TEXT NOT NULL,
+          expires_at TEXT,
+          UNIQUE(subject_key, predicate_key, object_key, project)
+        );
+        CREATE INDEX IF NOT EXISTS idx_suppressions_lookup
+          ON memory_suppressions(project, subject_key, predicate_key, object_key);
+      `);
+    },
+  },
 ];
 
 export const HEAD_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
@@ -236,6 +367,8 @@ export interface BackupPayload {
   history: Array<Record<string, unknown>>;
   edges: Array<Record<string, unknown>>;
   episodes: Array<Record<string, unknown>>;
+  candidates: Array<Record<string, unknown>>;
+  suppressions: Array<Record<string, unknown>>;
 }
 
 export class MemoryDb {
@@ -338,15 +471,17 @@ export class MemoryDb {
     const rows = match
       ? (this.db
           .prepare(
-            `SELECT m.id, m.subject, m.predicate, m.object, m.tags, m.importance,
-                    m.confidence, m.frequency, m.pinned, m.archived
+        `SELECT m.id, m.subject, m.predicate, m.object, m.tags, m.importance,
+                    m.confidence, m.frequency, m.pinned, m.archived, m.provenance,
+                    m.trust, m.evidence, m.recorded_at, m.valid_from, m.valid_until
              FROM memories m JOIN memory_fts ON memory_fts.rowid = m.id
              WHERE memory_fts MATCH ? AND m.project = ?${archivedClause}`,
           )
           .all(...params) as unknown as MemoryKeyRow[])
       : (this.db
           .prepare(
-            `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, pinned, archived
+             `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, pinned, archived,
+                     provenance, trust, evidence, recorded_at, valid_from, valid_until
              FROM memories
              WHERE project = ?${archived === null ? "" : " AND archived = ?"}`,
           )
@@ -354,6 +489,34 @@ export class MemoryDb {
     return rows.filter(
       (row) => normalizeKey(row.subject) === normalizeKey(subject) && normalizeKey(row.predicate) === normalizeKey(predicate),
     );
+  }
+
+  private blockedBySuppression(subject: string, predicate: string, object: string, project: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT id FROM memory_suppressions
+         WHERE subject_key = ? AND predicate_key = ? AND object_key = ? AND project = ?
+           AND (expires_at IS NULL OR expires_at > ?)`,
+      )
+      .get(normalizeKey(subject), normalizeKey(predicate), normalizeKey(object), project, new Date().toISOString());
+    return row !== undefined;
+  }
+
+  private rejectedAddResult(): AddResult {
+    return {
+      id: 0,
+      created: false,
+      changed: false,
+      conflict: false,
+      resurrected: false,
+      confidence: 0,
+      frequency: 0,
+      faded: [],
+      archived: [],
+      history: [],
+      rejected: true,
+      rejectionReason: "suppressed",
+    };
   }
 
   add(input: AddInput): AddResult {
@@ -364,6 +527,15 @@ export class MemoryDb {
     const importance = clamp01(input.importance ?? 0.5);
     const theme = input.theme?.trim().toLowerCase() || null;
     const tags = [...new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean))];
+    const trust = normalizeTrust(input.trust);
+    const evidence = input.evidence?.trim() || null;
+    const validFrom = normalizeDate(input.validFrom, "validFrom");
+    const validUntil = normalizeDate(input.validUntil, "validUntil");
+    if (validFrom && validUntil && Date.parse(validUntil) <= Date.parse(validFrom)) {
+      throw new Error("validUntil doit être postérieur à validFrom");
+    }
+
+    if (this.blockedBySuppression(subject, predicate, object, input.project)) return this.rejectedAddResult();
 
     const keyRows = this.memoriesForKey(subject, predicate, input.project, null);
     const rows = keyRows.filter((row) => row.archived === 0);
@@ -390,15 +562,31 @@ export class MemoryDb {
       const cfg = getConfig();
       const confidence = clamp01(exact.confidence + cfg.reinforceConfidenceStep);
       const mergedTags = [...new Set([...JSON.parse(exact.tags), ...tags])];
+      const exactTrust = TRUST_RANK[exact.trust] >= TRUST_RANK[trust] ? exact.trust : trust;
       this.db
         .prepare(
           `UPDATE memories
            SET confidence = ?, frequency = frequency + 1,
                importance = MAX(importance, ?), tags = ?, updated_at = ?,
-               pinned = MAX(pinned, ?), theme = COALESCE(theme, ?)
+               pinned = MAX(pinned, ?), theme = COALESCE(theme, ?),
+               trust = ?, evidence = COALESCE(?, evidence), recorded_at = ?,
+               valid_from = COALESCE(?, valid_from), valid_until = COALESCE(?, valid_until)
            WHERE id = ?`,
         )
-        .run(confidence, importance, JSON.stringify(mergedTags), now, input.pin ? 1 : 0, theme, exact.id);
+        .run(
+          confidence,
+          importance,
+          JSON.stringify(mergedTags),
+          now,
+          input.pin ? 1 : 0,
+          theme,
+          exactTrust,
+          evidence,
+          now,
+          validFrom,
+          validUntil,
+          exact.id,
+        );
       const history = this.historyOf(exact.id);
       return {
         id: exact.id,
@@ -427,12 +615,15 @@ export class MemoryDb {
       const archivedRow = keyRows.find((r) => r.archived === 1 && normalizeKey(r.object) === normalizeKey(object));
       if (archivedRow) {
         const confidence = clamp01(archivedRow.confidence * cfg.resurrectConfidence + cfg.reinforceConfidenceStep);
+        const resurrectTrust = TRUST_RANK[archivedRow.trust] >= TRUST_RANK[trust] ? archivedRow.trust : trust;
         this.db
           .prepare(
-            `UPDATE memories SET archived = 0, confidence = ?, frequency = frequency + 1, updated_at = ?
+            `UPDATE memories SET archived = 0, confidence = ?, frequency = frequency + 1, updated_at = ?,
+             trust = ?, evidence = COALESCE(?, evidence), recorded_at = ?,
+             valid_from = COALESCE(?, valid_from), valid_until = COALESCE(?, valid_until)
              WHERE id = ?`,
           )
-          .run(confidence, now, archivedRow.id);
+          .run(confidence, now, resurrectTrust, evidence, now, validFrom, validUntil, archivedRow.id);
         this.audit({ entity: "memory", entityId: archivedRow.id, field: "archived", oldValue: "1", newValue: "0", reason: "resurrection" });
         for (const other of rows) {
           this.db
@@ -455,10 +646,11 @@ export class MemoryDb {
       }
       const info = this.db
         .prepare(
-          `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, created_at, updated_at, pinned, theme)
-           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance,
+             created_at, updated_at, pinned, theme, trust, evidence, recorded_at, valid_from, valid_until)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(subject, predicate, object, JSON.stringify(tags), importance, cfg.resurrectConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
+        .run(subject, predicate, object, JSON.stringify(tags), importance, cfg.resurrectConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme, trust, evidence, now, validFrom, validUntil);
       const id = Number(info.lastInsertRowid);
       for (const other of rows) {
         this.db
@@ -492,10 +684,11 @@ export class MemoryDb {
       const cfg = getConfig();
       const info = this.db
         .prepare(
-          `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, created_at, updated_at, pinned, theme)
-           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance,
+             created_at, updated_at, pinned, theme, trust, evidence, recorded_at, valid_from, valid_until)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(subject, predicate, object, JSON.stringify(tags), importance, cfg.supersedeConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
+        .run(subject, predicate, object, JSON.stringify(tags), importance, cfg.supersedeConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme, trust, evidence, now, validFrom, validUntil);
       const id = Number(info.lastInsertRowid);
       for (const other of rows) {
         this.db
@@ -520,10 +713,11 @@ export class MemoryDb {
     const cfg = getConfig();
     const info = this.db
       .prepare(
-        `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, created_at, updated_at, pinned, theme)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance,
+           created_at, updated_at, pinned, theme, trust, evidence, recorded_at, valid_from, valid_until)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(subject, predicate, object, JSON.stringify(tags), importance, cfg.initialConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
+      .run(subject, predicate, object, JSON.stringify(tags), importance, cfg.initialConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme, trust, evidence, now, validFrom, validUntil);
     const id = Number(info.lastInsertRowid);
     this.linkMemory(id, subject, object, input.project);
     return {
@@ -577,7 +771,20 @@ export class MemoryDb {
     }
   }
 
-  private fade(row: { id: number; object: string; confidence: number; importance: number; pinned: number }, now: string): { id: number; archived: boolean; untouched: boolean } {
+  private fade(
+    row: {
+      id: number;
+      object: string;
+      confidence: number;
+      importance: number;
+      pinned: number;
+      trust: MemoryTrust;
+      evidence: string | null;
+      valid_from: string | null;
+      valid_until: string | null;
+    },
+    now: string,
+  ): { id: number; archived: boolean; untouched: boolean } {
     if (row.pinned === 1) return { id: row.id, archived: false, untouched: true };
     const cfg = getConfig();
     if (row.importance >= cfg.criticalImportance) {
@@ -591,8 +798,12 @@ export class MemoryDb {
         .prepare(`UPDATE memories SET archived = 1, updated_at = ? WHERE id = ?`)
         .run(now, row.id);
       this.db
-        .prepare(`INSERT INTO memory_history (memory_id, previous, changed_at) VALUES (?, ?, ?)`)
-        .run(row.id, row.object, now);
+        .prepare(
+          `INSERT INTO memory_history
+             (memory_id, previous, changed_at, previous_trust, previous_evidence, previous_valid_from, previous_valid_until, recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(row.id, row.object, now, row.trust, row.evidence, row.valid_from, row.valid_until, now);
       this.audit({ entity: "memory", entityId: row.id, field: "archived", oldValue: "0", newValue: "1", reason: "supersession" });
       return { id: row.id, archived: true, untouched: false };
     }
@@ -600,12 +811,36 @@ export class MemoryDb {
     return { id: row.id, archived: false, untouched: false };
   }
 
-  private historyOf(memoryId: number): Array<{ previous: string; changedAt: string }> {
+  private historyOf(memoryId: number): Array<{
+    previous: string;
+    changedAt: string;
+    trust?: MemoryTrust;
+    evidence?: string | null;
+    validFrom?: string | null;
+    validUntil?: string | null;
+  }> {
     return (
       this.db
-        .prepare(`SELECT previous, changed_at FROM memory_history WHERE memory_id = ? ORDER BY changed_at DESC`)
-        .all(memoryId) as Array<{ previous: string; changed_at: string }>
-    ).map((h) => ({ previous: h.previous, changedAt: h.changed_at }));
+        .prepare(
+          `SELECT previous, changed_at, previous_trust, previous_evidence, previous_valid_from, previous_valid_until
+           FROM memory_history WHERE memory_id = ? ORDER BY changed_at DESC`,
+        )
+        .all(memoryId) as Array<{
+        previous: string;
+        changed_at: string;
+        previous_trust: MemoryTrust | null;
+        previous_evidence: string | null;
+        previous_valid_from: string | null;
+        previous_valid_until: string | null;
+      }>
+    ).map((h) => ({
+      previous: h.previous,
+      changedAt: h.changed_at,
+      trust: h.previous_trust ?? undefined,
+      evidence: h.previous_evidence,
+      validFrom: h.previous_valid_from,
+      validUntil: h.previous_valid_until,
+    }));
   }
 
   addMany(inputs: AddInput[]): AddResult[] {
@@ -630,16 +865,30 @@ export class MemoryDb {
     });
   }
 
-  private whereClause(project: string | null, theme: string | null): { sql: string; params: (string | number)[] } {
-    const clauses: string[] = ["archived = 0"];
+  private whereClause(
+    project: string | null,
+    theme: string | null,
+    crossProject = false,
+    asOf: string | null = null,
+  ): { sql: string; params: (string | number)[] } {
+    const effectiveAsOf = asOf ?? new Date().toISOString();
+    const clauses: string[] = asOf ? ["(archived = 0 OR updated_at > ?)"] : ["archived = 0"];
     const params: (string | number)[] = [];
+    if (asOf) params.push(effectiveAsOf);
     if (theme) {
       clauses.push("(theme = ? OR theme LIKE ?)");
       params.push(theme, `${theme}/%`);
+      if (project && !crossProject) {
+        clauses.push("project = ?");
+        params.push(project);
+      }
     } else if (project) {
       clauses.push("project = ?");
       params.push(project);
     }
+    clauses.push("(valid_from IS NULL OR valid_from <= ?)");
+    clauses.push("(valid_until IS NULL OR valid_until > ?)");
+    params.push(effectiveAsOf, effectiveAsOf);
     return { sql: clauses.join(" AND "), params };
   }
 
@@ -655,14 +904,25 @@ export class MemoryDb {
     return hits.map((h) => (this.inFocus(h.theme, focus) ? h : { ...h, score: h.score * attenuation }));
   }
 
-  async search(query: string, project: string | null, theme: string | null, limit: number, relax: boolean = false, focus: string[] | null = null): Promise<SearchHit[]> {
-    const where = this.whereClause(project, theme);
+  async search(
+    query: string,
+    project: string | null,
+    theme: string | null,
+    limit: number,
+    relax = false,
+    focus: string[] | null = null,
+    crossProject = false,
+    asOf: string | null = null,
+  ): Promise<SearchHit[]> {
+    const normalizedAsOf = asOf ? normalizeDate(asOf, "asOf") : null;
+    const where = this.whereClause(project, theme, crossProject, normalizedAsOf);
     const match = ftsQuery(query);
     const rows = match
       ? (this.db
           .prepare(
             `SELECT m.id, m.subject, m.predicate, m.object, m.tags, m.importance, m.confidence,
-                    m.frequency, m.project, m.pinned, m.theme, m.updated_at
+                    m.frequency, m.project, m.provenance, m.trust, m.evidence, m.recorded_at,
+                    m.valid_from, m.valid_until, m.pinned, m.theme, m.updated_at
              FROM memories m JOIN memory_fts ON memory_fts.rowid = m.id
              WHERE memory_fts MATCH ? AND ${where.sql}`,
           )
@@ -676,6 +936,12 @@ export class MemoryDb {
             confidence: number;
             frequency: number;
             project: string;
+            provenance: string | null;
+            trust: MemoryTrust;
+            evidence: string | null;
+            recorded_at: string | null;
+            valid_from: string | null;
+            valid_until: string | null;
             pinned: number;
             theme: string | null;
             updated_at: string;
@@ -684,7 +950,27 @@ export class MemoryDb {
     const hits: SearchHit[] = [];
     for (const row of rows) {
       const tags = JSON.parse(row.tags) as string[];
-      hits.push({ ...row, pinned: row.pinned === 1, tags, priority: this.priorityOf(row), score: 0 });
+      hits.push({
+        id: row.id,
+        subject: row.subject,
+        predicate: row.predicate,
+        object: row.object,
+        tags,
+        importance: row.importance,
+        confidence: row.confidence,
+        frequency: row.frequency,
+        project: row.project,
+        provenance: row.provenance,
+        trust: row.trust,
+        evidence: row.evidence,
+        recordedAt: row.recorded_at ?? row.updated_at,
+        validFrom: row.valid_from,
+        validUntil: row.valid_until,
+        pinned: row.pinned === 1,
+        theme: row.theme,
+        priority: this.priorityOf(row),
+        score: 0,
+      });
     }
     let withBase = hits.map((h) => ({ ...h, score: searchScore(query, h), lexical: lexicalScore(query, h) }));
     const seeded = withBase
@@ -692,7 +978,7 @@ export class MemoryDb {
       .sort((a, b) => b.score - a.score);
     if (!relax) return this.reweight(seeded, focus).sort((a, b) => b.score - a.score).slice(0, limit);
     if (seeded.length === 0) {
-      return (await this.semanticCandidates(query, project, theme, limit)).slice(0, limit);
+      return (await this.semanticCandidates(query, project, theme, limit, crossProject, normalizedAsOf)).slice(0, limit);
     }
     const best = seeded[0].score;
     let frontier = seeded;
@@ -718,7 +1004,8 @@ export class MemoryDb {
       if (idsToLoad.length > 0) {
         const neighborRows = this.db
           .prepare(
-            `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, pinned, theme, updated_at
+             `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project,
+                     provenance, trust, evidence, recorded_at, valid_from, valid_until, pinned, theme, updated_at
              FROM memories WHERE id IN (${idsToLoad.map(() => "?").join(",")}) AND ${where.sql}`,
           )
           .all(...idsToLoad, ...where.params) as Array<{
@@ -733,13 +1020,33 @@ export class MemoryDb {
           project: string;
           pinned: number;
           theme: string | null;
-          updated_at: string;
+           updated_at: string;
+           provenance: string | null;
+           trust: MemoryTrust;
+           evidence: string | null;
+           recorded_at: string | null;
+           valid_from: string | null;
+           valid_until: string | null;
         }>;
         for (const row of neighborRows) {
           const h = {
-            ...row,
+            id: row.id,
+            subject: row.subject,
+            predicate: row.predicate,
+            object: row.object,
+            project: row.project,
+            provenance: row.provenance,
+            trust: row.trust,
+            evidence: row.evidence,
+            recordedAt: row.recorded_at ?? row.updated_at,
+            validFrom: row.valid_from,
+            validUntil: row.valid_until,
             pinned: row.pinned === 1,
             tags: JSON.parse(row.tags) as string[],
+            importance: row.importance,
+            confidence: row.confidence,
+            frequency: row.frequency,
+            theme: row.theme,
             priority: this.priorityOf(row),
             score: best * Math.pow(cfg.relaxGraphBoost, hop),
             lexical: 0,
@@ -755,9 +1062,9 @@ export class MemoryDb {
       .filter((h) => h.score > 0)
       .sort((a, b) => b.score - a.score);
     if (base.length === 0) {
-      return this.reweight(await this.semanticCandidates(query, project, theme, limit), focus).slice(0, limit);
+      return this.reweight(await this.semanticCandidates(query, project, theme, limit, crossProject, normalizedAsOf), focus).slice(0, limit);
     }
-    const semantic = await this.semanticCandidates(query, project, theme, limit);
+    const semantic = await this.semanticCandidates(query, project, theme, limit, crossProject, normalizedAsOf);
     const merged: SearchHit[] = [...base];
     const seen = new Set(base.map((h) => h.id));
     for (const s of semantic) {
@@ -801,15 +1108,19 @@ export class MemoryDb {
     project: string | null,
     theme: string | null,
     limit: number,
+    crossProject = false,
+    asOf: string | null = null,
   ): Promise<SearchHit[]> {
     if (!(await ollamaAvailable())) return [];
     const qv = await embed(query);
     if (!qv) return [];
-    const where = this.whereClause(project, theme);
+    const where = this.whereClause(project, theme, crossProject, asOf);
     // ponytail: cosine over stored JSON is O(n); add a SQLite vector extension only when corpus size justifies it.
     const rows = this.db
       .prepare(
-        `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, pinned, theme, embedding, updated_at
+        `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project,
+                provenance, trust, evidence, recorded_at, valid_from, valid_until,
+                pinned, theme, embedding, updated_at
          FROM memories WHERE ${where.sql} AND embedding IS NOT NULL`,
       )
       .all(...where.params) as Array<{
@@ -822,6 +1133,12 @@ export class MemoryDb {
       confidence: number;
       frequency: number;
       project: string;
+      provenance: string | null;
+      trust: MemoryTrust;
+      evidence: string | null;
+      recorded_at: string | null;
+      valid_from: string | null;
+      valid_until: string | null;
       pinned: number;
       theme: string | null;
       embedding: string;
@@ -844,19 +1161,34 @@ export class MemoryDb {
         importance: row.importance,
         confidence: row.confidence,
         frequency: row.frequency,
+        project: row.project,
+        provenance: row.provenance,
+        trust: row.trust,
+        evidence: row.evidence,
+        recordedAt: row.recorded_at ?? row.updated_at,
+        validFrom: row.valid_from,
+        validUntil: row.valid_until,
         pinned: row.pinned === 1,
         theme: row.theme,
-        project: row.project,
         priority: this.priorityOf(row),
         score: sim * getConfig().relaxSemanticWeight,
       }));
   }
 
-  list(project: string | null, theme: string | null, limit: number, focus: string[] | null = null): SearchHit[] {
-    const where = this.whereClause(project, theme);
+  list(
+    project: string | null,
+    theme: string | null,
+    limit: number,
+    focus: string[] | null = null,
+    crossProject = false,
+    asOf: string | null = null,
+  ): SearchHit[] {
+    const normalizedAsOf = asOf ? normalizeDate(asOf, "asOf") : null;
+    const where = this.whereClause(project, theme, crossProject, normalizedAsOf);
     const rows = this.db
       .prepare(
-        `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, pinned, theme, updated_at
+        `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project,
+                provenance, trust, evidence, recorded_at, valid_from, valid_until, pinned, theme, updated_at
          FROM memories WHERE ${where.sql}`,
       )
       .all(...where.params) as Array<{
@@ -869,6 +1201,12 @@ export class MemoryDb {
       confidence: number;
       frequency: number;
       project: string;
+      provenance: string | null;
+      trust: MemoryTrust;
+      evidence: string | null;
+      recorded_at: string | null;
+      valid_from: string | null;
+      valid_until: string | null;
       pinned: number;
       theme: string | null;
       updated_at: string;
@@ -884,6 +1222,12 @@ export class MemoryDb {
         confidence: row.confidence,
         frequency: row.frequency,
         project: row.project,
+        provenance: row.provenance,
+        trust: row.trust,
+        evidence: row.evidence,
+        recordedAt: row.recorded_at ?? row.updated_at,
+        validFrom: row.valid_from,
+        validUntil: row.valid_until,
         pinned: row.pinned === 1,
         theme: row.theme,
         priority: this.priorityOf(row),
@@ -918,6 +1262,8 @@ export class MemoryDb {
       memoriesArchived: count(`SELECT COUNT(*) AS n FROM memories WHERE archived = 1`),
       pinned: count(`SELECT COUNT(*) AS n FROM memories WHERE pinned = 1 AND archived = 0`),
       episodes: count(`SELECT COUNT(*) AS n FROM episodes`),
+      candidatesPending: count(`SELECT COUNT(*) AS n FROM memory_candidates WHERE status = 'pending'`),
+      suppressions: count(`SELECT COUNT(*) AS n FROM memory_suppressions WHERE expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`),
       edges: count(`SELECT COUNT(*) AS n FROM edges`),
       themes: this.themes(),
       topByPriority: top,
@@ -995,7 +1341,7 @@ export class MemoryDb {
     const row = this.db.prepare(`SELECT subject, predicate, object FROM memories WHERE id = ? AND archived = 0`).get(id) as
       | { subject: string; predicate: string; object: string }
       | undefined;
-    const info = this.db.prepare(`UPDATE memories SET archived = 1 WHERE id = ? AND archived = 0`).run(id);
+    const info = this.db.prepare(`UPDATE memories SET archived = 1, updated_at = ? WHERE id = ? AND archived = 0`).run(new Date().toISOString(), id);
     if (info.changes > 0) {
       this.audit({
         entity: "memory",
@@ -1014,6 +1360,7 @@ export class MemoryDb {
     const row = this.db
       .prepare(
         `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, provenance,
+                trust, evidence, recorded_at, valid_from, valid_until,
                 archived, created_at, updated_at, pinned, theme
          FROM memories WHERE id = ?`,
       )
@@ -1029,6 +1376,11 @@ export class MemoryDb {
           frequency: number;
           project: string;
           provenance: string | null;
+          trust: MemoryTrust;
+          evidence: string | null;
+          recorded_at: string | null;
+          valid_from: string | null;
+          valid_until: string | null;
           archived: number;
           created_at: string;
           updated_at: string;
@@ -1048,12 +1400,31 @@ export class MemoryDb {
       frequency: row.frequency,
       project: row.project,
       provenance: row.provenance,
+      trust: row.trust,
+      evidence: row.evidence,
+      recordedAt: row.recorded_at ?? row.created_at,
+      validFrom: row.valid_from,
+      validUntil: row.valid_until,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       archived: row.archived === 1,
       pinned: row.pinned === 1,
       theme: row.theme,
     };
+  }
+
+  verify(id: number, evidence: string, reason = "human-verify"): MemoryRecord | null {
+    const before = this.get(id);
+    if (!before || before.archived) return null;
+    const proof = evidence.trim();
+    if (!proof) throw new Error("evidence requise pour vérifier une mémoire");
+    const now = new Date().toISOString();
+    this.db
+      .prepare(`UPDATE memories SET trust = 'verified', evidence = ?, recorded_at = ?, updated_at = ? WHERE id = ? AND archived = 0`)
+      .run(proof, now, now, id);
+    this.audit({ entity: "memory", entityId: id, field: "trust", oldValue: before.trust, newValue: "verified", reason });
+    this.audit({ entity: "memory", entityId: id, field: "evidence", oldValue: before.evidence, newValue: proof, reason });
+    return this.get(id);
   }
 
   /** Correction manuelle d'un fait (CLI memsem edit) : champs fournis seulement,
@@ -1118,6 +1489,7 @@ export class MemoryDb {
     const rows = this.db
       .prepare(
         `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, provenance,
+                trust, evidence, recorded_at, valid_from, valid_until,
                 archived, created_at, updated_at, pinned, theme
          FROM memories ${includeArchived ? "" : "WHERE archived = 0"}
          ORDER BY pinned DESC, updated_at DESC LIMIT ?`,
@@ -1133,6 +1505,11 @@ export class MemoryDb {
       frequency: number;
       project: string;
       provenance: string | null;
+      trust: MemoryTrust;
+      evidence: string | null;
+      recorded_at: string | null;
+      valid_from: string | null;
+      valid_until: string | null;
       archived: number;
       created_at: string;
       updated_at: string;
@@ -1150,6 +1527,11 @@ export class MemoryDb {
       frequency: r.frequency,
       project: r.project,
       provenance: r.provenance,
+      trust: r.trust,
+      evidence: r.evidence,
+      recordedAt: r.recorded_at ?? r.created_at,
+      validFrom: r.valid_from,
+      validUntil: r.valid_until,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       archived: r.archived === 1,
@@ -1157,6 +1539,211 @@ export class MemoryDb {
       theme: r.theme,
       priority: this.priorityOf(r),
     }));
+  }
+
+  addCandidate(input: CandidateInput): { id: number; status: "pending" } {
+    const subject = input.subject.trim();
+    const predicate = input.predicate.trim();
+    const object = input.object.trim();
+    const theme = input.theme?.trim().toLowerCase() || null;
+    const tags = [...new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean))];
+    const trust = normalizeTrust(input.trust);
+    const evidence = input.evidence?.trim() || null;
+    const validFrom = normalizeDate(input.validFrom, "validFrom");
+    const validUntil = normalizeDate(input.validUntil, "validUntil");
+    if (validFrom && validUntil && Date.parse(validUntil) <= Date.parse(validFrom)) {
+      throw new Error("validUntil doit être postérieur à validFrom");
+    }
+    const now = new Date().toISOString();
+    const info = this.db
+      .prepare(
+        `INSERT INTO memory_candidates
+           (subject, predicate, object, tags, importance, theme, project, provenance, trust, evidence, valid_from, valid_until, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        subject,
+        predicate,
+        object,
+        JSON.stringify(tags),
+        clamp01(input.importance ?? 0.5),
+        theme,
+        input.project,
+        input.provenance ?? null,
+        trust,
+        evidence,
+        validFrom,
+        validUntil,
+        now,
+      );
+    const id = Number(info.lastInsertRowid);
+    this.audit({ entity: "candidate", entityId: id, field: "status", oldValue: null, newValue: "pending", reason: "candidate-add" });
+    return { id, status: "pending" };
+  }
+
+  listCandidates(project: string | null, status: MemoryCandidate["status"] | null, limit: number, id: number | null = null): MemoryCandidate[] {
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (project) {
+      clauses.push("project = ?");
+      params.push(project);
+    }
+    if (status) {
+      clauses.push("status = ?");
+      params.push(status);
+    }
+    if (id !== null) {
+      clauses.push("id = ?");
+      params.push(id);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM memory_candidates ${where} ORDER BY created_at DESC LIMIT ?`)
+      .all(...params, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: Number(row.id),
+      subject: String(row.subject),
+      predicate: String(row.predicate),
+      object: String(row.object),
+      tags: JSON.parse(String(row.tags)) as string[],
+      importance: Number(row.importance),
+      theme: row.theme ? String(row.theme) : null,
+      project: String(row.project),
+      provenance: row.provenance ? String(row.provenance) : null,
+      trust: normalizeTrust(String(row.trust)),
+      evidence: row.evidence ? String(row.evidence) : null,
+      validFrom: row.valid_from ? String(row.valid_from) : null,
+      validUntil: row.valid_until ? String(row.valid_until) : null,
+      status: String(row.status) as MemoryCandidate["status"],
+      rejectionReason: row.rejection_reason ? String(row.rejection_reason) : null,
+      createdAt: String(row.created_at),
+      reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
+    }));
+  }
+
+  reviewCandidate(id: number, decision: "approve" | "reject", reason?: string): { id: number; status: "approved" | "rejected"; memoryId: number | null } {
+    const candidate = this.listCandidates(null, "pending", 1, id)[0];
+    if (!candidate) throw new Error("candidat introuvable ou déjà traité");
+    const now = new Date().toISOString();
+    if (decision === "approve") {
+      const result = this.add({
+        subject: candidate.subject,
+        predicate: candidate.predicate,
+        object: candidate.object,
+        tags: candidate.tags,
+        importance: candidate.importance,
+        theme: candidate.theme ?? undefined,
+        project: candidate.project,
+        provenance: candidate.provenance ?? undefined,
+        trust: candidate.trust,
+        evidence: candidate.evidence ?? undefined,
+        validFrom: candidate.validFrom ?? undefined,
+        validUntil: candidate.validUntil ?? undefined,
+      });
+      if (result.rejected) throw new Error("candidat bloqué par une suppression active");
+      this.db
+        .prepare(`UPDATE memory_candidates SET status = 'approved', reviewed_at = ?, rejection_reason = NULL WHERE id = ?`)
+        .run(now, id);
+      this.audit({ entity: "candidate", entityId: id, field: "status", oldValue: "pending", newValue: "approved", reason: reason ?? "human-approve" });
+      return { id, status: "approved", memoryId: result.id };
+    }
+
+    this.db
+      .prepare(
+        `INSERT INTO memory_suppressions
+           (subject_key, predicate_key, object_key, project, reason, source_candidate_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(subject_key, predicate_key, object_key, project) DO UPDATE SET
+           reason = excluded.reason, source_candidate_id = excluded.source_candidate_id, created_at = excluded.created_at`,
+      )
+      .run(
+        normalizeKey(candidate.subject),
+        normalizeKey(candidate.predicate),
+        normalizeKey(candidate.object),
+        candidate.project,
+        reason ?? "human-reject",
+        id,
+        now,
+      );
+    this.db
+      .prepare(`UPDATE memory_candidates SET status = 'rejected', reviewed_at = ?, rejection_reason = ? WHERE id = ?`)
+      .run(now, reason ?? "human-reject", id);
+    this.audit({ entity: "candidate", entityId: id, field: "status", oldValue: "pending", newValue: "rejected", reason: reason ?? "human-reject" });
+    return { id, status: "rejected", memoryId: null };
+  }
+
+  unsuppress(subject: string, predicate: string, object: string, project: string): boolean {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM memory_suppressions
+         WHERE subject_key = ? AND predicate_key = ? AND object_key = ? AND project = ?`,
+      )
+      .all(normalizeKey(subject), normalizeKey(predicate), normalizeKey(object), project) as Array<{ id: number }>;
+    if (rows.length === 0) return false;
+    this.db
+      .prepare(
+        `DELETE FROM memory_suppressions
+         WHERE subject_key = ? AND predicate_key = ? AND object_key = ? AND project = ?`,
+      )
+      .run(normalizeKey(subject), normalizeKey(predicate), normalizeKey(object), project);
+    for (const row of rows) {
+      this.audit({ entity: "suppression", entityId: row.id, field: "status", oldValue: "active", newValue: "removed", reason: "unsuppress" });
+    }
+    return true;
+  }
+
+  auditLog(entityId: number | null = null, limit = 50): Array<{
+    id: number;
+    entity: string;
+    entityId: number;
+    field: string;
+    oldValue: string | null;
+    newValue: string | null;
+    reason: string | null;
+    passId: string | null;
+    dryRun: boolean;
+    createdAt: string;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, entity, entity_id, field, old_value, new_value, reason, pass_id, dry_run, created_at
+         FROM audit_log ${entityId === null ? "" : "WHERE entity_id = ?"}
+         ORDER BY created_at DESC, id DESC LIMIT ?`,
+      )
+      .all(...(entityId === null ? [limit] : [entityId, limit])) as Array<{
+      id: number;
+      entity: string;
+      entity_id: number;
+      field: string;
+      old_value: string | null;
+      new_value: string | null;
+      reason: string | null;
+      pass_id: string | null;
+      dry_run: number;
+      created_at: string;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      entity: row.entity,
+      entityId: row.entity_id,
+      field: row.field,
+      oldValue: row.old_value,
+      newValue: row.new_value,
+      reason: row.reason,
+      passId: row.pass_id,
+      dryRun: row.dry_run === 1,
+      createdAt: row.created_at,
+    }));
+  }
+
+  purge(id: number, reason = "purge"): boolean {
+    const exists = this.db.prepare(`SELECT id FROM memories WHERE id = ?`).get(id);
+    if (!exists) return false;
+    this.db
+      .prepare(`UPDATE audit_log SET old_value = '[redacted]', new_value = '[redacted]' WHERE entity = 'memory' AND entity_id = ?`)
+      .run(id);
+    this.audit({ entity: "memory", entityId: id, field: "purged", oldValue: null, newValue: "[redacted]", reason });
+    return (this.db.prepare(`DELETE FROM memories WHERE id = ?`).run(id).changes ?? 0) > 0;
   }
 
   /**
@@ -1390,7 +1977,11 @@ export class MemoryDb {
       this.db.prepare(`SELECT * FROM memories ${memWhere}`).all(...(project ? [project] : [])) as Array<Record<string, unknown>>
     ).map((m) => ({ ...m, tags: JSON.parse(m.tags as string) }));
     const history = this.db
-      .prepare(`SELECT id, memory_id, previous, changed_at FROM memory_history`)
+      .prepare(
+        `SELECT id, memory_id, previous, changed_at, previous_trust, previous_evidence,
+                previous_valid_from, previous_valid_until, recorded_at
+         FROM memory_history`,
+      )
       .all() as Array<Record<string, unknown>>;
     const edges = this.db
       .prepare(`SELECT id, source_id, target_id, relation FROM edges`)
@@ -1398,9 +1989,15 @@ export class MemoryDb {
     const episodes = this.db
       .prepare(`SELECT id, project, summary, provenance, created_at FROM episodes`)
       .all() as Array<Record<string, unknown>>;
+    const candidates = (
+      this.db.prepare(`SELECT * FROM memory_candidates`).all() as Array<Record<string, unknown>>
+    ).map((candidate) => ({ ...candidate, tags: JSON.parse(candidate.tags as string) }));
+    const suppressions = this.db
+      .prepare(`SELECT * FROM memory_suppressions`)
+      .all() as Array<Record<string, unknown>>;
     return {
       format: "memsem-backup",
-      formatVersion: 1,
+      formatVersion: 2,
       exportedAt: new Date().toISOString(),
       dbVersion: this.version(),
       project,
@@ -1408,6 +2005,8 @@ export class MemoryDb {
       history,
       edges,
       episodes,
+      candidates,
+      suppressions,
     };
   }
 
@@ -1416,11 +2015,11 @@ export class MemoryDb {
    * (sujet+prédicat+objet+projet) n'est pas dupliqué ; historique/arêtes
    * rattachés aux faits existants par triplet ; épisodes dédupliqués.
    */
-  importJSON(payload: BackupPayload): { memories: number; history: number; edges: number; episodes: number } {
+  importJSON(payload: BackupPayload): { memories: number; history: number; edges: number; episodes: number; candidates: number; suppressions: number } {
     if (!payload || payload.format !== "memsem-backup") {
       throw new Error("format invalide : attendu memsem-backup");
     }
-    const out = { memories: 0, history: 0, edges: 0, episodes: 0 };
+    const out = { memories: 0, history: 0, edges: 0, episodes: 0, candidates: 0, suppressions: 0 };
     const idMap = new Map<number, number>();
     this.db.exec("BEGIN");
     try {
@@ -1429,8 +2028,10 @@ export class MemoryDb {
          WHERE lower(trim(subject)) = ? AND lower(trim(predicate)) = ? AND lower(trim(object)) = ? AND trim(project) = ?`,
       );
       const insertMemory = this.db.prepare(
-        `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, archived, created_at, updated_at, pinned, theme, embedding)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO memories
+           (subject, predicate, object, tags, importance, confidence, frequency, project, provenance,
+            trust, evidence, recorded_at, valid_from, valid_until, archived, created_at, updated_at, pinned, theme, embedding)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const m of payload.memories) {
         const subject = String(m.subject ?? "");
@@ -1454,6 +2055,11 @@ export class MemoryDb {
           Number(m.frequency) || 1,
           project,
           m.provenance ? String(m.provenance) : null,
+          normalizeTrust(m.trust ? String(m.trust) : undefined),
+          m.evidence ? String(m.evidence) : null,
+          String(m.recorded_at ?? m.created_at ?? new Date().toISOString()),
+          m.valid_from ? String(m.valid_from) : null,
+          m.valid_until ? String(m.valid_until) : null,
           Number(m.archived) === 1 ? 1 : 0,
           String(m.created_at ?? new Date().toISOString()),
           String(m.updated_at ?? new Date().toISOString()),
@@ -1469,7 +2075,9 @@ export class MemoryDb {
         `SELECT id FROM memory_history WHERE memory_id = ? AND previous = ? AND changed_at = ?`,
       );
       const insertHistory = this.db.prepare(
-        `INSERT INTO memory_history (memory_id, previous, changed_at) VALUES (?, ?, ?)`,
+        `INSERT INTO memory_history
+           (memory_id, previous, changed_at, previous_trust, previous_evidence, previous_valid_from, previous_valid_until, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const h of payload.history) {
         const targetId = idMap.get(Number(h.memory_id));
@@ -1477,7 +2085,16 @@ export class MemoryDb {
         const previous = String(h.previous ?? "");
         const changedAt = String(h.changed_at ?? "");
         if (historyExists.get(targetId, previous, changedAt)) continue;
-        insertHistory.run(targetId, previous, changedAt);
+        insertHistory.run(
+          targetId,
+          previous,
+          changedAt,
+          h.previous_trust ? normalizeTrust(String(h.previous_trust)) : null,
+          h.previous_evidence ? String(h.previous_evidence) : null,
+          h.previous_valid_from ? String(h.previous_valid_from) : null,
+          h.previous_valid_until ? String(h.previous_valid_until) : null,
+          String(h.recorded_at ?? changedAt),
+        );
         out.history++;
       }
 
@@ -1505,6 +2122,67 @@ export class MemoryDb {
         if (episodeExists.get(summary, createdAt, provenance)) continue;
         insertEpisode.run(String(ep.project ?? ""), summary, provenance, createdAt);
         out.episodes++;
+      }
+
+      const candidateExists = this.db.prepare(
+        `SELECT id FROM memory_candidates
+         WHERE lower(trim(subject)) = ? AND lower(trim(predicate)) = ? AND lower(trim(object)) = ?
+           AND trim(project) = ? AND status = ?`,
+      );
+      const insertCandidate = this.db.prepare(
+        `INSERT INTO memory_candidates
+           (subject, predicate, object, tags, importance, theme, project, provenance, trust, evidence,
+            valid_from, valid_until, status, rejection_reason, created_at, reviewed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const candidate of payload.candidates ?? []) {
+        const subject = String(candidate.subject ?? "");
+        const predicate = String(candidate.predicate ?? "");
+        const object = String(candidate.object ?? "");
+        const project = String(candidate.project ?? "");
+        const status = String(candidate.status ?? "pending");
+        if (status !== "pending" && status !== "approved" && status !== "rejected") {
+          throw new Error(`status candidat invalide: ${status}`);
+        }
+        if (candidateExists.get(normalizeKey(subject), normalizeKey(predicate), normalizeKey(object), project.trim(), status)) continue;
+        insertCandidate.run(
+          subject,
+          predicate,
+          object,
+          JSON.stringify(Array.isArray(candidate.tags) ? candidate.tags : []),
+          clamp01(Number(candidate.importance) || 0.5),
+          candidate.theme ? String(candidate.theme) : null,
+          project,
+          candidate.provenance ? String(candidate.provenance) : null,
+          normalizeTrust(candidate.trust ? String(candidate.trust) : undefined),
+          candidate.evidence ? String(candidate.evidence) : null,
+          candidate.valid_from ? String(candidate.valid_from) : null,
+          candidate.valid_until ? String(candidate.valid_until) : null,
+          status,
+          candidate.rejection_reason ? String(candidate.rejection_reason) : null,
+          String(candidate.created_at ?? new Date().toISOString()),
+          candidate.reviewed_at ? String(candidate.reviewed_at) : null,
+        );
+        out.candidates++;
+      }
+
+      const insertSuppression = this.db.prepare(
+        `INSERT OR IGNORE INTO memory_suppressions
+           (subject_key, predicate_key, object_key, project, reason, source_candidate_id, created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const suppression of payload.suppressions ?? []) {
+        const info = insertSuppression.run(
+          String(suppression.subject_key ?? ""),
+          String(suppression.predicate_key ?? ""),
+          String(suppression.object_key ?? ""),
+          String(suppression.project ?? ""),
+          suppression.reason ? String(suppression.reason) : null,
+          suppression.source_candidate_id ? Number(suppression.source_candidate_id) : null,
+          String(suppression.created_at ?? new Date().toISOString()),
+          suppression.expires_at ? String(suppression.expires_at) : null,
+        );
+        if (info.changes > 0) out.suppressions++;
       }
 
       this.db.exec("COMMIT");

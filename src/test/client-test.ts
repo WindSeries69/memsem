@@ -252,10 +252,11 @@ const crossProject = await call(client, "memory_search", {
   query: "the",
   theme: "alimentation",
   project: "test-proj",
+  crossProject: true,
 }) as Array<{ theme: string | null }>;
 assert(
   crossProject.some((h) => h.theme === "alimentation/boissons"),
-  "theme + projet: la memoire de l'autre projet ressort quand meme",
+  "theme + crossProject: la memoire de l'autre projet ressort explicitement",
 );
 const themeList = await call(client, "memory_list", { theme: "alimentation" }) as Array<{ theme: string | null }>;
 assert(themeList.every((h) => h.theme === "alimentation/boissons"), "liste par theme ciblee");
@@ -360,6 +361,34 @@ assert(
   afterScore.findIndex((h) => h.predicate === "joue a") === 0,
   "scoring: fait critique reste en tete malgre les tentatives",
 );
+const verified = await call(client, "memory_verify", { id: game.id, evidence: "vérifié pendant le test", reason: "test" });
+assert(verified.trust === "verified", "verify MCP: mémoire marquée vérifiée");
+
+const candidate = await call(client, "memory_candidate_add", {
+  subject: "projet",
+  predicate: "evite",
+  object: "outil rejete",
+  project: "test-proj",
+  evidence: "decision humaine",
+});
+assert(candidate.status === "pending", "review MCP: candidat en attente");
+const reviewed = await call(client, "memory_candidate_review", {
+  id: candidate.id,
+  decision: "reject",
+  reason: "choix utilisateur",
+});
+assert(reviewed.status === "rejected", "review MCP: rejet applique");
+const blocked = await call(client, "memory_add", {
+  subject: "projet",
+  predicate: "evite",
+  object: "outil rejete",
+  project: "test-proj",
+});
+assert(blocked.rejected === true, "write gate MCP: valeur rejetee bloquee");
+const audit = await call(client, "memory_audit", { id: candidate.id, limit: 10 }) as Array<{ field: string }>;
+assert(audit.some((entry) => entry.field === "status"), "audit MCP: revue lisible");
+const purged = await call(client, "memory_purge", { id: table.id, confirm: true, reason: "test purge" });
+assert(purged.purged === true, "purge MCP: confirmation executee");
 
 await client.close();
 

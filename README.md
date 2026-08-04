@@ -172,11 +172,13 @@ flowchart LR
     A --> J["pinned & critical (≥ 0.9) are protected"]
 ```
 
-- **Atomic facts** — every memory is a `subject → predicate → object` triple with importance, confidence, frequency, tags, theme, provenance.
+- **Atomic facts** — every memory is a `subject → predicate → object` triple with importance, confidence, frequency, tags, theme, provenance, trust and evidence.
 - **Themes & focus** — hierarchical themes (`food/drinks`) are the routing map; a search by theme crosses all projects. The `focus` list keeps the session's active themes at full priority.
 - **Dynamic priority** — `0.45 × importance + 0.25 × confidence + 0.2 × recency + 0.1 × frequency`. A critical fact beats a recurring pattern.
 - **Soft supersession** — contradictions fade the old fact (confidence decays) until it archives under a threshold. History is always kept.
 - **Semantic index (optional)** — each fact is embedded locally (`mxbai-embed-large` via Ollama); `relax: true` searches add cosine similarity (threshold 0.5). Without Ollama, everything works identically — strict lexical search.
+- **Evidence and time** — `inferred`, `verbatim` and `verified` trust states keep a short evidence trail; `recorded_at` is separate from `valid_from` / `valid_until`, with historical `asOf` queries.
+- **Review and scope** — uncertain facts can stay `pending`; rejection blocks their normalized value, project scope is isolated by default, and cross-project search is explicit.
 
 ## Comparison
 
@@ -200,7 +202,8 @@ Everything that can be done through MCP can be done from a terminal:
 ```bash
 memsem list [--theme x] [--project p] [--limit n] [--all]   # read your memory
 memsem edit <id> [--object "..."] [--importance 0.6] [...]  # fix a fact by hand (audited)
-memsem forget <id> [--yes]                                  # archive a fact (confirm)
+  memsem forget <id> [--yes]                                  # archive a fact (confirm)
+  memsem purge <id> [--yes]                                   # permanently erase a fact (confirm)
 memsem doctor [--limit n] [--hours h]                       # most-modified facts — spot drift
 memsem export [--output f] [--project p]                    # full JSON dump
 memsem import <file.json>                                   # restore / merge a dump
@@ -246,6 +249,7 @@ restores via `memsem export` / `memsem import`.
 - [x] Configurable constants, validated by a benchmark
 - [x] Secure judge: dry-run, audit journal, guardrails, `memsem doctor`
 - [x] CLI: `list` / `edit` / `forget` — fix a fact by hand
+- [x] Evidence contract, temporal validity, candidate review, audit and confirmed purge
 - [ ] Obsidian bridge: export/import memory as readable markdown notes
 - [ ] Multi-hop graph propagation
 

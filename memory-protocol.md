@@ -2,7 +2,8 @@
 
 Tu disposes du serveur MCP `memory` (paquet `memsem`) avec les outils :
 `memory_add`, `memory_add_many`, `memory_search`, `memory_list`,
-`memory_forget`. Ce protocole s'applique à **chaque conversation,
+`memory_candidate_add`, `memory_candidate_list`, `memory_candidate_review`,
+`memory_verify`, `memory_unsuppress`, `memory_audit`, `memory_forget`, `memory_purge`. Ce protocole s'applique à **chaque conversation,
 automatiquement**, sans qu'on te le demande.
 ## Au début de chaque conversation
 
@@ -36,9 +37,10 @@ c'est la couche temporelle.
 
 ## La recherche, quand elle a lieu
 
-- Identifie le thème et passe `theme` — la mémoire du thème traverse les
-  projets : un fait écrit dans le projet `global` ressort dans n'importe
-  quel projet quand le sujet correspond.
+- Identifie le thème et passe `theme`. Avec un `project` explicite, le thème
+  reste dans ce projet par défaut ; passe `crossProject: true` uniquement si
+  la comparaison inter-projets est réellement nécessaire. Sans projet, la
+  recherche globale reste disponible.
 - La recherche est **stricte par défaut** : seule la correspondance lexicale
   réelle remonte (pas d'associations lointaines). Avec une mémoire immense,
   ne pars jamais dans le graphe pour répondre — utilise `relax: true`
@@ -52,6 +54,8 @@ c'est la couche temporelle.
   atténuées, jamais perdues — un thème encore actif ne baisse jamais.
 - N'injecte pas tout : ne ramène que ce qui sert la question courante — le
   contexte est un budget, les thèmes sont le routage.
+- Pour retrouver un état historique, passe `asOf` avec une date ISO 8601 ; ne
+  transforme pas une date d'enregistrement en date de l'événement.
 
 ## Écrire automatiquement
 
@@ -69,6 +73,18 @@ c'est la couche temporelle.
   critique, **confirme d'abord avec l'utilisateur** avant d'écrire. Un fait
   critique (importance 0.9+) s'écrit sans confirmation.
 
+Chaque écriture peut porter :
+
+- `trust: "inferred"` par défaut : déduction du modèle ;
+- `trust: "verbatim"` seulement si `evidence` est une citation exacte de la
+  conversation ;
+- `trust: "verified"` est réservé à `memory_verify`, après vérification humaine
+  ou externe réelle ;
+- `evidence` : preuve courte, sans secret ni transcript complet ;
+- `validFrom` / `validUntil` : période pendant laquelle le fait est vrai, si
+  elle est connue. `recorded_at` est géré par le serveur et ne doit pas être
+  inventé.
+
 **Chaque mémoire écrite porte un `theme`** (hiérarchique, ex: `alimentation/boissons`,
 `sante/allergies`, `projet/jeux`) — c'est la branche de l'arbre où elle vivra.
 Choisis le thème le plus précis possible ; le sous-arbre est inclus dans les
@@ -79,6 +95,12 @@ N'écris **pas** en mémoire :
 - le contenu des fichiers (ils sont déjà sur disque)
 - le code produit, les étapes d'une tâche, les détails éphémères d'une session
 - les commandes, URLs, messages ponctuels
+
+Si un fait est incertain mais mérite une décision humaine, utilise
+`memory_candidate_add` plutôt que `memory_add`. Une approbation le publie ; un
+rejet durable bloque la même valeur à la write gate. `memory_forget` archive
+sans effacer l'historique ; `memory_purge` est irréversible et exige
+`confirm: true`.
 
 ## Importance (c'est toi qui décides)
 
