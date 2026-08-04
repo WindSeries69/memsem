@@ -18,6 +18,9 @@ export interface MemoryRecord {
   provenance: string | null;
   createdAt: string;
   updatedAt: string;
+  archived: boolean;
+  pinned: boolean;
+  theme: string | null;
 }
 
 export interface AddInput {
@@ -784,9 +787,172 @@ export class MemoryDb {
     return lines.join("\n");
   }
 
-  forget(id: number): boolean {
+  forget(id: number, reason?: string): boolean {
+    const row = this.db.prepare(`SELECT subject, predicate, object FROM memories WHERE id = ? AND archived = 0`).get(id) as
+      | { subject: string; predicate: string; object: string }
+      | undefined;
     const info = this.db.prepare(`UPDATE memories SET archived = 1 WHERE id = ? AND archived = 0`).run(id);
-    return info.changes > 0;
+    if (info.changes > 0) {
+      this.audit({
+        entity: "memory",
+        entityId: id,
+        field: "archived",
+        oldValue: "0",
+        newValue: "1",
+        reason: reason ?? "forget",
+      });
+    }
+    return info.changes > 0 && row !== undefined;
+  }
+
+  /** Lecture d'une mémoire (active ou archivée) — CLI list/edit/forget. */
+  get(id: number): MemoryRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, provenance,
+                archived, created_at, updated_at, pinned, theme
+         FROM memories WHERE id = ?`,
+      )
+      .get(id) as
+      | {
+          id: number;
+          subject: string;
+          predicate: string;
+          object: string;
+          tags: string;
+          importance: number;
+          confidence: number;
+          frequency: number;
+          project: string;
+          provenance: string | null;
+          archived: number;
+          created_at: string;
+          updated_at: string;
+          pinned: number;
+          theme: string | null;
+        }
+      | undefined;
+    if (!row) return null;
+    return {
+      id: row.id,
+      subject: row.subject,
+      predicate: row.predicate,
+      object: row.object,
+      tags: JSON.parse(row.tags) as string[],
+      importance: row.importance,
+      confidence: row.confidence,
+      frequency: row.frequency,
+      project: row.project,
+      provenance: row.provenance,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      archived: row.archived === 1,
+      pinned: row.pinned === 1,
+      theme: row.theme,
+    };
+  }
+
+  /** Correction manuelle d'un fait (CLI memsem edit) : champs fournis seulement,
+   *  chaque changement audité. Un fait archivé est immuable. */
+  edit(
+    id: number,
+    fields: { subject?: string; predicate?: string; object?: string; importance?: number; theme?: string | null; tags?: string[]; pin?: boolean },
+  ): { before: MemoryRecord; after: MemoryRecord } | null {
+    const before = this.get(id);
+    if (!before || before.archived) return null;
+    const now = new Date().toISOString();
+    const changes: Array<{ field: string; oldValue: string; newValue: string }> = [];
+    const sets: string[] = [];
+    const params: (string | number | null)[] = [];
+
+    const apply = (field: string, value: string | number | null, oldValue: string, toSql: (v: string | number | null) => string | number | null) => {
+      sets.push(`${field} = ?`);
+      params.push(toSql(value));
+      changes.push({ field, oldValue, newValue: String(value) });
+    };
+
+    if (fields.subject !== undefined && fields.subject.trim() !== before.subject) {
+      apply("subject", fields.subject.trim(), before.subject, (v) => String(v));
+    }
+    if (fields.predicate !== undefined && fields.predicate.trim() !== before.predicate) {
+      apply("predicate", fields.predicate.trim(), before.predicate, (v) => String(v));
+    }
+    if (fields.object !== undefined && fields.object.trim() !== before.object) {
+      apply("object", fields.object.trim(), before.object, (v) => String(v));
+    }
+    if (fields.importance !== undefined && fields.importance !== before.importance) {
+      apply("importance", clamp01(fields.importance), String(before.importance), (v) => Number(v));
+    }
+    if (fields.theme !== undefined && (fields.theme ?? null) !== before.theme) {
+      const theme = fields.theme?.trim().toLowerCase() || null;
+      apply("theme", theme, String(before.theme), (v) => (v === null ? null : String(v)));
+    }
+    if (fields.tags !== undefined) {
+      const tags = [...new Set(fields.tags.map((t) => t.trim()).filter(Boolean))];
+      if (JSON.stringify(tags) !== JSON.stringify(before.tags)) {
+        apply("tags", JSON.stringify(tags), JSON.stringify(before.tags), (v) => String(v));
+      }
+    }
+    if (fields.pin !== undefined && fields.pin !== before.pinned) {
+      apply("pinned", fields.pin ? 1 : 0, before.pinned ? "true" : "false", (v) => Number(v));
+    }
+
+    if (changes.length === 0) return { before, after: before };
+    sets.push("updated_at = ?");
+    params.push(now);
+    params.push(id);
+    this.db.prepare(`UPDATE memories SET ${sets.join(", ")} WHERE id = ?`).run(...params);
+    for (const change of changes) {
+      this.audit({ entity: "memory", entityId: id, field: change.field, oldValue: change.oldValue, newValue: change.newValue, reason: "cli-edit" });
+    }
+    const after = this.get(id);
+    return after ? { before, after } : null;
+  }
+
+  /** Faits actifs ou tous (archivés inclus), triés par priorité — CLI list. */
+  listAll(includeArchived: boolean, limit: number): Array<MemoryRecord & { priority: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, provenance,
+                archived, created_at, updated_at, pinned, theme
+         FROM memories ${includeArchived ? "" : "WHERE archived = 0"}
+         ORDER BY pinned DESC, updated_at DESC LIMIT ?`,
+      )
+      .all(limit) as Array<{
+      id: number;
+      subject: string;
+      predicate: string;
+      object: string;
+      tags: string;
+      importance: number;
+      confidence: number;
+      frequency: number;
+      project: string;
+      provenance: string | null;
+      archived: number;
+      created_at: string;
+      updated_at: string;
+      pinned: number;
+      theme: string | null;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      subject: r.subject,
+      predicate: r.predicate,
+      object: r.object,
+      tags: JSON.parse(r.tags) as string[],
+      importance: r.importance,
+      confidence: r.confidence,
+      frequency: r.frequency,
+      project: r.project,
+      provenance: r.provenance,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      archived: r.archived === 1,
+      pinned: r.pinned === 1,
+      theme: r.theme,
+      priority: this.priorityOf(r),
+    }));
   }
 
   /**

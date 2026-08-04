@@ -159,14 +159,16 @@ flowchart LR
 
 | | memsem | `CLAUDE.md` / notes | mem0 | Zep / Graphiti | official memory MCP | Obsidian as memory |
 |---|---|---|---|---|---|---|
-| Auto-writes during sessions | ✅ | ❌ | ⚠️ via app code | ⚠️ | ❌ | ❌ |
+| Auto-writes during sessions | ✅ | ❌ | ⚠️ via app code | ⚠️ via app code | ❌ | ❌ |
 | Priority for context budget | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Contradictions (soft supersession) | ✅ | ❌ (overwrites) | ❌ (overwrites) | ❌ | ❌ | ❌ |
-| Semantic search, local & private | ✅ (Ollama) | ❌ | ⚠️ (needs vector DB) | ⚠️ (needs graph DB) | ❌ | ⚠️ (plugins) |
-| Episodic memory + self-maintenance | ✅ | ❌ | ❌ | ⚠️ | ❌ | ❌ |
-| One memory across all your repos | ✅ | ❌ (per project) | ⚠️ | ⚠️ | ❌ | ⚠️ (vault) |
+| Contradictions (soft supersession) | ✅ | ❌ (overwrites) | ❌ (overwrites) | ✅ (temporal versioning) | ❌ | ❌ |
+| Semantic search | ✅ local (Ollama) | ❌ | ✅ (vector store) | ✅ (graph + embeddings) | ❌ | ⚠️ (plugins) |
+| Episodic memory + self-maintenance | ✅ | ❌ | ⚠️ (episodic add-ons) | ✅ (temporal knowledge graph) | ❌ | ❌ |
+| One memory across all your repos | ✅ | ❌ (per project) | ⚠️ (per app config) | ⚠️ (per app config) | ❌ | ⚠️ (vault) |
 | Zero dependency, `npx -y` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| Human-readable / editable | ❌ | ✅ | ❌ | ❌ | ✅ (JSON) | ✅ |
+| Human-readable / editable | ⚠️ (CLI list/edit) | ✅ | ❌ | ❌ | ✅ (JSON) | ✅ |
+
+*Comparison as of Aug 2026, from public docs; capabilities evolve — verify before choosing.*
 
 ## Documentation
 
