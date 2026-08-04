@@ -159,14 +159,16 @@ flowchart LR
 
 | | memsem | `CLAUDE.md` / notes | mem0 | Zep / Graphiti | memory MCP officiel | Obsidian comme mémoire |
 |---|---|---|---|---|---|---|
-| Écriture auto pendant les sessions | ✅ | ❌ | ⚠️ via le code | ⚠️ | ❌ | ❌ |
+| Écriture auto pendant les sessions | ✅ | ❌ | ⚠️ via le code | ⚠️ via le code | ❌ | ❌ |
 | Priorité pour le budget de contexte | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Contradictions (supersession douce) | ✅ | ❌ (écrase) | ❌ (écrase) | ❌ | ❌ | ❌ |
-| Recherche sémantique locale et privée | ✅ (Ollama) | ❌ | ⚠️ (base vectorielle) | ⚠️ (base graphe) | ❌ | ⚠️ (plugins) |
-| Mémoire épisodique + auto-entretien | ✅ | ❌ | ❌ | ⚠️ | ❌ | ❌ |
-| Une mémoire pour tous tes repos | ✅ | ❌ (par projet) | ⚠️ | ⚠️ | ❌ | ⚠️ (vault) |
+| Contradictions (supersession douce) | ✅ | ❌ (écrase) | ❌ (écrase) | ✅ (versionnage temporel) | ❌ | ❌ |
+| Recherche sémantique | ✅ local (Ollama) | ❌ | ✅ (base vectorielle) | ✅ (graphe + embeddings) | ❌ | ⚠️ (plugins) |
+| Mémoire épisodique + auto-entretien | ✅ | ❌ | ⚠️ (modules épisodiques) | ✅ (graphe de connaissance temporel) | ❌ | ❌ |
+| Une mémoire pour tous tes repos | ✅ | ❌ (par projet) | ⚠️ (par config app) | ⚠️ (par config app) | ❌ | ⚠️ (vault) |
 | Zéro dépendance, `npx -y` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| Lisible / éditable à la main | ❌ | ✅ | ❌ | ❌ | ✅ (JSON) | ✅ |
+| Lisible / éditable à la main | ⚠️ (CLI list/edit) | ✅ | ❌ | ❌ | ✅ (JSON) | ✅ |
+
+*Comparaison au 2026-08, sur la base des docs publiques ; les fonctionnalités évoluent — vérifiez avant de choisir.*
 
 ## Documentation
 
