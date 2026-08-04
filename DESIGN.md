@@ -216,6 +216,54 @@ Implémenté et testé (49 tests) :
       `memsem setup` pour opencode + Claude Code (MCP + CLAUDE.md), base par
       utilisateur partagée entre tous les repos, jamais commitée
 
+## 11. Constantes et calibration (résultat du banc d'essai)
+
+Toutes les constantes vivent dans `src/config.ts`, surchargeables par l'utilisateur
+via `~/.memsem/config.json` (ou `$MEMSEM_CONFIG`), fusion partielle et validée.
+
+| Constante | Défaut | Rôle |
+| --- | --- | --- |
+| `priority.{importance,confidence,recency,frequency}` | 0.45 / 0.25 / 0.2 / 0.1 | pondération de la priorité |
+| `halfLifeHours` | 168 (7 j) | demi-vie de la récence |
+| `minLexical` | 0.5 | seuil lexical de la recherche stricte |
+| `relaxCosineThreshold` | 0.5 | seuil cosinus du mode relax (sémantique) |
+| `relaxGraphHops` / `relaxGraphBoost` | 2 / 0.3 | propagation du graphe en relax |
+| `focusAttenuation` | 0.35 | atténuation hors focus |
+| `fadeFactor` / `criticalFadeFactor` / `archiveThreshold` | 0.6 / 0.9 / 0.25 | supersession douce |
+| `criticalImportance` | 0.8 | seuil au-delà duquel un fait est protégé |
+
+### Méthode
+
+`scripts/bench.mjs` : 51 faits (thèmes alimentation, santé, projet, dev), 20 requêtes
+avec résultats attendus, certains faits vieillis (1 à 30 j) pour rendre la récence
+discriminante, requêtes ambiguës avec distracteurs (ex. « node » : 5 candidats
+lexicaux, 2 pertinents dont un vieilli à importance 0.9). Recherche stricte, top-5,
+précision/rappel moyens sur les 20 requêtes (P@k, R@k pour k=3, 5). Hors ligne,
+déterministe, exécuté à chaque `npm test`.
+
+### Résultat (2026-08)
+
+| jeu de constantes | P@3 | R@3 | P@5 | R@5 |
+| --- | --- | --- | --- | --- |
+| **défaut (0.45/0.25/0.2/0.1)** | **0.958** | **0.958** | 0.320 | 0.958 |
+| egalitaire (0.25×4) | 0.933 | 0.933 | 0.320 | 0.958 |
+| recence-heavy (0.3/0.15/0.45/0.1) | 0.933 | 0.933 | 0.320 | 0.958 |
+| confiance-heavy (0.2/0.5/0.15/0.15) | 0.933 | 0.933 | 0.320 | 0.958 |
+| seuil lexical 0.4 | 0.958 | 0.958 | 0.320 | 0.958 |
+
+### Lecture honnête
+
+- **Le réglage par défaut n'est pas arbitraire** : sur ce jeu de référence, il bat
+  les alternatives (uniforme, récence-heavy, confiance-heavy) de +0.025 en P@3/R@3.
+  La requête « node » (fait important vieilli face à des distracteurs récents) est
+  le cas qui tranche : seule la pondération par défaut le garde dans le top-3.
+- **Résultat modeste et borné** : le jeu est conçu par l'auteur, pas un standard ;
+  P@5 (0.32) est bas car chaque requête n'a que 1-3 faits pertinents sur 5 résultats —
+  c'est un artefact du jeu, pas un défaut du scoring. Le seuil lexical 0.4 ne change
+  rien ici : tous les matchs pertinents étaient ≥ 0.5.
+- **À enrichir** : jeux de requêtes tirés de vrais usages, comparaison avec le mode
+  relax (nécessite Ollama), calibration du seuil cosinus 0.5 avec des embeddings réels.
+
 ## 10. Questions ouvertes
 
 - Seuil de déclenchement de la consolidation (nombre de faits ? temps ?)

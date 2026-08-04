@@ -1,4 +1,4 @@
-export const HALF_LIFE_HOURS = 24 * 7;
+import { getConfig } from "./config.js";
 
 export interface PriorityInput {
   importance: number;
@@ -17,10 +17,14 @@ export function computePriority({
   frequency,
   ageHours,
 }: PriorityInput): number {
-  const recency = Math.exp(-ageHours / HALF_LIFE_HOURS);
+  const cfg = getConfig();
+  const recency = Math.exp(-ageHours / cfg.halfLifeHours);
   const freqFactor = 1 - 1 / (1 + Math.log(1 + frequency));
   return clamp01(
-    0.45 * importance + 0.25 * confidence + 0.2 * recency + 0.1 * freqFactor,
+    cfg.priority.importance * importance +
+      cfg.priority.confidence * confidence +
+      cfg.priority.recency * recency +
+      cfg.priority.frequency * freqFactor,
   );
 }
 
@@ -38,7 +42,10 @@ export function overlapRatio(queryTokens: string[], memoryTokens: string[]): num
   return hits / queryTokens.length;
 }
 
-export const MIN_LEXICAL = 0.5;
+/** Seuil lexical minimum (défaut 0.5 = 50% des mots de la requête). */
+export function minLexical(): number {
+  return getConfig().minLexical;
+}
 
 export function lexicalScore(
   query: string,
@@ -62,5 +69,6 @@ export function searchScore(
 ): number {
   const lexical = lexicalScore(query, memory);
   if (lexical === 0) return 0;
-  return lexical * 0.7 + memory.priority * 0.3;
+  const cfg = getConfig();
+  return lexical * cfg.searchLexicalWeight + memory.priority * cfg.searchPriorityWeight;
 }

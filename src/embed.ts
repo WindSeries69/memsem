@@ -1,5 +1,7 @@
+import { getConfig } from "./config.js";
+
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
-export const EMBED_MODEL = process.env.MEMSEM_EMBED_MODEL ?? "mxbai-embed-large";
+export const EMBED_MODEL = (): string => getConfig().embedModel;
 
 let cached: { available: boolean; at: number } | null = null;
 const TTL_OK = 5 * 60_000;
