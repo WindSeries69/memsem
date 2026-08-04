@@ -311,12 +311,15 @@ const epList = await call(client, "memory_episode_search", { project: "test-proj
 assert(epList.length >= 2 && epList.every((e) => e.project === "test-proj"), "episodes: liste filtree par projet");
 
 const scored = await call(client, "memory_score", { id: game.id, importance: 0.4 });
-assert(Math.abs(scored.importance - 0.4) < 1e-9, "scoring: importance recalibree");
+assert(scored.refused === "critical-0.9" && scored.applied === false, "scoring: fait critique (0.9) intouchable");
+const scoredThe = await call(client, "memory_score", { id: themed.id, importance: 0.9, reason: "paire test", passId: "test-pass" });
+assert(Math.abs(scoredThe.importance - 0.65) < 1e-9 && scoredThe.clampedDelta === true, "scoring: variation plafonnee ±0.15");
+const dry = await call(client, "memory_score", { id: themed.id, importance: 0.5, dryRun: true });
+assert(dry.applied === false, "scoring: dryRun sans effet");
 const afterScore = await call(client, "memory_search", { query: "the", limit: 10 }) as Array<{ predicate: string; theme: string | null }>;
 assert(
-  afterScore.findIndex((h) => h.theme === "alimentation/boissons") <
-    afterScore.findIndex((h) => h.predicate === "joue a"),
-  "scoring: la baisse d'importance reordonne les resultats",
+  afterScore.findIndex((h) => h.predicate === "joue a") === 0,
+  "scoring: fait critique reste en tete malgre les tentatives",
 );
 
 await client.close();
