@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="660" viewBox="0 0 880 660" role="img" aria-label="memsem comic — the memory of an AI, in 4 panels">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#0a0e14"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="880" height="660" fill="url(#bg)" rx="12"/>
+  <text x="440" y="32" text-anchor="middle" font-family="system-ui, sans-serif" font-size="16" font-weight="700" fill="#e6edf3">The memory of an AI, in 4 panels</text>
+
+  <!-- PANEL 1: amnesia -->
+  <g>
+    <rect x="20" y="52" width="415" height="280" rx="12" fill="#161b22" stroke="#30363d"/>
+    <text x="36" y="80" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#ff5f56">1 · AMNESIA</text>
+    <circle cx="150" cy="200" r="46" fill="#0d1117" stroke="#8b949e" stroke-width="2.5"/>
+    <circle cx="136" cy="190" r="4" fill="#e6edf3"/><circle cx="164" cy="190" r="4" fill="#e6edf3"/>
+    <path d="M140 212 q10 8 20 0" stroke="#e6edf3" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <rect x="230" y="140" width="175" height="64" rx="10" fill="#0d1117" stroke="#30363d"/>
+    <path d="M230 172 l-22 12" stroke="#30363d" stroke-width="2" fill="none"/>
+    <text x="245" y="166" font-family="system-ui, sans-serif" font-size="13" fill="#8b949e">new session…</text>
+    <text x="245" y="186" font-family="system-ui, sans-serif" font-size="13" fill="#8b949e">what did we decide</text>
+    <text x="245" y="198" font-family="system-ui, sans-serif" font-size="13" fill="#8b949e">yesterday? …</text>
+    <text x="36" y="300" font-family="ui-monospace, monospace" font-size="12" fill="#8b949e">memory: nothing.</text>
+    <text x="36" y="318" font-family="system-ui, sans-serif" font-size="12" fill="#6e7681">every AI, by default</text>
+  </g>
+
+  <!-- PANEL 2: it writes -->
+  <g>
+    <rect x="445" y="52" width="415" height="280" rx="12" fill="#161b22" stroke="#30363d"/>
+    <text x="461" y="80" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#79c0ff">2 · IT WRITES ITSELF</text>
+    <circle cx="555" cy="200" r="46" fill="#0d1117" stroke="#8b949e" stroke-width="2.5"/>
+    <circle cx="541" cy="190" r="4" fill="#e6edf3"/><circle cx="569" cy="190" r="4" fill="#e6edf3"/>
+    <rect x="630" y="150" width="205" height="56" rx="10" fill="#0d1117" stroke="#a371f7" stroke-width="1.5"/>
+    <path d="M630 178 l-20 10" stroke="#a371f7" stroke-width="2" fill="none"/>
+    <text x="645" y="172" font-family="system-ui, sans-serif" font-size="13" fill="#e6edf3">"you're lactose</text>
+    <text x="645" y="192" font-family="system-ui, sans-serif" font-size="13" fill="#e6edf3">intolerant? noted."</text>
+    <rect x="630" y="222" width="205" height="52" rx="8" fill="#0d1117" stroke="#30363d"/>
+    <text x="645" y="244" font-family="ui-monospace, monospace" font-size="11.5" fill="#a371f7">user → is-intolerant-to</text>
+    <text x="645" y="262" font-family="ui-monospace, monospace" font-size="11.5" fill="#a371f7">→ lactose   [imp 0.9]</text>
+    <text x="461" y="300" font-family="ui-monospace, monospace" font-size="12" fill="#8b949e">memory: stored, with priority.</text>
+    <text x="461" y="318" font-family="system-ui, sans-serif" font-size="12" fill="#6e7681">during the conversation, silently</text>
+  </g>
+
+  <!-- PANEL 3: contradiction -->
+  <g>
+    <rect x="20" y="352" width="415" height="280" rx="12" fill="#161b22" stroke="#30363d"/>
+    <text x="36" y="380" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#ffbd2e">3 · CONTRADICTION</text>
+    <circle cx="150" cy="470" r="46" fill="#0d1117" stroke="#8b949e" stroke-width="2.5"/>
+    <circle cx="136" cy="460" r="4" fill="#e6edf3"/><circle cx="164" cy="460" r="4" fill="#e6edf3"/>
+    <path d="M140 482 q10 8 20 0" stroke="#e6edf3" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <rect x="220" y="430" width="195" height="52" rx="10" fill="#0d1117" stroke="#30363d"/>
+    <path d="M220 456 l-18 8" stroke="#30363d" stroke-width="2" fill="none"/>
+    <text x="235" y="452" font-family="system-ui, sans-serif" font-size="13" fill="#8b949e">"I've been drinking milk</text>
+    <text x="235" y="472" font-family="system-ui, sans-serif" font-size="13" fill="#8b949e">for years… wait."</text>
+    <rect x="36" y="510" width="380" height="78" rx="8" fill="#0d1117" stroke="#30363d"/>
+    <text x="52" y="534" font-family="system-ui, sans-serif" font-size="13" fill="#e6edf3">No overwrite. The old fact fades,</text>
+    <text x="52" y="554" font-family="system-ui, sans-serif" font-size="13" fill="#e6edf3">the critical fact wins, history kept.</text>
+    <text x="52" y="576" font-family="ui-monospace, monospace" font-size="11.5" fill="#a371f7">drinks → milk   (faded)</text>
+    <text x="52" y="592" font-family="ui-monospace, monospace" font-size="11.5" fill="#79c0ff">drinks → no more milk   (winner)</text>
+  </g>
+
+  <!-- PANEL 4: it remembers -->
+  <g>
+    <rect x="445" y="352" width="415" height="280" rx="12" fill="#161b22" stroke="#30363d"/>
+    <text x="461" y="380" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#27c93f">4 · IT REMEMBERS</text>
+    <circle cx="555" cy="470" r="46" fill="#0d1117" stroke="#27c93f" stroke-width="2.5"/>
+    <circle cx="541" cy="460" r="4" fill="#e6edf3"/><circle cx="569" cy="460" r="4" fill="#e6edf3"/>
+    <path d="M541 480 q7 5 14 0" stroke="#e6edf3" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <rect x="620" y="440" width="215" height="56" rx="10" fill="#0d1117" stroke="#27c93f" stroke-width="1.5"/>
+    <path d="M620 468 l-18 8" stroke="#27c93f" stroke-width="2" fill="none"/>
+    <text x="635" y="462" font-family="system-ui, sans-serif" font-size="13" fill="#e6edf3">"new repo, months later:</text>
+    <text x="635" y="482" font-family="system-ui, sans-serif" font-size="13" fill="#e6edf3">what should I avoid?"</text>
+    <rect x="461" y="512" width="380" height="76" rx="8" fill="#0d1117" stroke="#30363d"/>
+    <text x="477" y="536" font-family="ui-monospace, monospace" font-size="12" fill="#a371f7">→ user → is-intolerant-to → lactose</text>
+    <text x="477" y="556" font-family="system-ui, sans-serif" font-size="13" fill="#e6edf3">across every project. 100% local.</text>
+    <text x="477" y="576" font-family="system-ui, sans-serif" font-size="12" fill="#6e7681">no cloud, no memory of yours in git.</text>
+  </g>
+
+  <text x="440" y="650" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#8b949e">memsem — semantic memory for AI agents · npx -y memsem · plugin: ["memsem"]</text>
+</svg>
