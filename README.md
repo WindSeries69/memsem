@@ -34,20 +34,43 @@
 > **Semantic memory for AI agents** — remembers what matters, knows what to forget.
 > One command to install. Works in *every* project, for *every* AI. 100% local.
 
-## Why?
+## Why — when big memory systems already exist?
 
-Your AI forgets everything between sessions. `CLAUDE.md` is a static file — it can't learn.
-Vector databases are heavy and often cloud-hosted. Most "memory" tools are passive storage:
-they keep what you throw at them, never prioritize, never reconcile contradictions.
+They exist, and they got the hard parts right: vector stores (mem0), temporal
+knowledge graphs (Zep / Graphiti), agent frameworks (MemGPT / Letta). But they
+all share the same three flaws:
 
-**memsem is different.** It's a memory *system*, not a drawer:
+1. **Brute storage, no structure.** They keep what you throw at them, and
+   retrieval is a similarity search over *everything*. The AI doesn't know
+   **where to look** — so it looks everywhere, and the noise drowns the signal.
+2. **No precision.** A fuzzy match is a fuzzy match: almost-right memories
+   fill the context budget and waste tokens.
+3. **No self-correction.** A fact contradicted months ago stays as strong as
+   the day it was written.
 
-- 🧠 **It writes itself** — during a session, your AI records durable facts (preferences, decisions, constraints) automatically. No more "remember to save this".
-- ⚖️ **It prioritizes** — every fact has a dynamic priority (`importance × confidence × recency × frequency`). When context is tight, the most relevant memories always surface first.
-- 🔄 **It handles contradictions** — "I've been drinking milk for years… wait, I'm lactose intolerant." The old fact doesn't get overwritten: it *fades* progressively and archives, with full history preserved. Critical facts (importance ≥ 0.9) are protected.
-- 🔗 **It bridges concepts** — an optional local semantic index (Ollama, on your machine) lets `fromage` find `lactose` without a single shared word.
-- 🕰️ **It has episodic memory** — session summaries on top of semantic facts, like the brain's two long-term systems.
-- 🔧 **It maintains itself** — background agents consolidate small facts into patterns (the "hippocampus") and recalibrate priorities by pairwise comparison, only when it makes the memory *better to search*.
+memsem fixes exactly these three things:
+
+- 🧭 **It knows where to search.** Every session starts with a routing card
+  (`memory-index.md`): themes + keywords, injected into the context. The AI
+  routes by theme, crosses projects, and only pays for what it needs.
+  Hierarchical themes + a live focus list keep the session's active branches
+  at full priority — the rest is attenuated, never lost.
+- 🎯 **It is precise.** Strict lexical search by default (50% word-match
+  threshold, no graph propagation unless you explicitly ask) — a query returns
+  the right facts, ranked by dynamic priority
+  (`importance × confidence × recency × frequency`). Precision is measured,
+  not assumed: **P@3 0.958** on the reference benchmark (51 facts, 20 queries,
+  [`scripts/bench.mjs`](scripts/bench.mjs), results in
+  [`DESIGN.md`](DESIGN.md) §11).
+- 🔄 **It corrects itself.** Contradictions fade the old fact instead of
+  overwriting it ("I drank milk for years… wait, lactose intolerant") — history
+  is always kept, critical facts (≥ 0.9) are protected. Background agents
+  extract durable facts at session end, consolidate small facts into patterns,
+  and recalibrate priorities — only when the memory stays *at least as
+  searchable*.
+
+All the big-system promises, minus their flaws: one command, 100% local, and
+your memory stays yours — never committed, per-user, shared across all your repos.
 
 ## See it work
 

@@ -35,21 +35,46 @@
 
 ---
 
-## Pourquoi ?
+## Pourquoi — alors que les gros systèmes de mémoire existent déjà ?
 
-Ton IA oublie tout entre deux sessions. `CLAUDE.md` est un fichier statique — il ne peut pas apprendre.
-Les bases vectorielles sont lourdes et souvent hébergées dans le cloud. La plupart des outils de
-« mémoire » sont du stockage passif : ils gardent ce qu'on leur jette, sans priorité, sans
-réconcilier les contradictions.
+Ils existent, et ils ont fait le dur : bases vectorielles (mem0), graphes de
+connaissance temporels (Zep / Graphiti), frameworks d'agents (MemGPT / Letta).
+Mais ils partagent tous les mêmes trois défauts :
 
-**memsem est différent.** C'est un système de mémoire, pas un tiroir :
+1. **Stockage brut, sans structure.** Ils gardent ce qu'on leur jette, et la
+   recherche est une similarité sur *tout*. L'IA ne sait pas **où chercher** —
+   alors elle cherche partout, et le bruit noie le signal.
+2. **Pas de précision.** Un match approximatif reste approximatif : des
+   souvenirs presque justes remplissent le budget de contexte et gaspillent
+   les tokens.
+3. **Pas d'auto-correction.** Un fait contredit il y a des mois reste aussi
+   fort que le jour où il a été écrit.
 
-- 🧠 **Elle s'écrit toute seule** — pendant une session, ton IA enregistre automatiquement les faits durables (préférences, décisions, contraintes). Fini le « pense à sauvegarder ça ».
-- ⚖️ **Elle priorise** — chaque fait a une priorité dynamique (`importance × confiance × récence × fréquence`). Quand le contexte est serré, les souvenirs les plus pertinents remontent toujours en premier.
-- 🔄 **Elle gère les contradictions** — « je bois du lait depuis des années… attends, je suis intolérant au lactose. » L'ancien fait n'est pas écrasé : il *s'estompe* progressivement puis s'archive, historique complet conservé. Les faits critiques (importance ≥ 0.9) sont protégés.
-- 🔗 **Elle relie les concepts** — un index sémantique local optionnel (Ollama, sur ta machine) permet à `fromage` de retrouver `lactose` sans un seul mot commun.
-- 🕰️ **Elle a une mémoire épisodique** — des résumés de session par-dessus les faits sémantiques, comme les deux systèmes de mémoire long-terme du cerveau.
-- 🔧 **Elle s'entretient elle-même** — des agents de fond consolident les petits faits en patterns (l'« hippocampe ») et recalibrent les priorités par comparaison par paires, uniquement quand ça rend la mémoire *mieux cherchable*.
+memsem corrige exactement ces trois choses :
+
+- 🧭 **Elle sait où chercher.** Chaque session commence par une carte de
+  routage (`memory-index.md`) : thèmes + mots-clés, injectée dans le contexte.
+  L'IA route par thème, traverse les projets, et ne paie que ce dont elle a
+  besoin. Les thèmes hiérarchiques + une liste `focus` vivante gardent les
+  branches actives de la session en pleine priorité — le reste est atténué,
+  jamais perdu.
+- 🎯 **Elle est précise.** Recherche stricte par défaut (seuil lexical de 50 %
+  des mots, pas de propagation de graphe sauf demande explicite) — une requête
+  renvoie les bons faits, classés par priorité dynamique
+  (`importance × confiance × récence × fréquence`). La précision est mesurée,
+  pas supposée : **P@3 0.958** sur le banc de référence (51 faits, 20 requêtes,
+  [`scripts/bench.mjs`](scripts/bench.mjs), résultats dans
+  [`DESIGN.md`](DESIGN.md) §11).
+- 🔄 **Elle se corrige.** Les contradictions estompent l'ancien fait au lieu de
+  l'écraser (« je bois du lait depuis des années… attends, lactose ») —
+  l'historique est toujours conservé, les faits critiques (≥ 0.9) sont
+  protégés. Des agents de fond extraient les faits durables en fin de session,
+  consolident les petits faits en patterns, et recalibrent les priorités —
+  uniquement quand la mémoire reste *au moins aussi cherchable*.
+
+Toutes les promesses des gros systèmes, sans leurs défauts : une commande,
+100% local, et ta mémoire reste tienne — jamais commitée, par utilisateur,
+partagée entre tous tes repos.
 
 ## Voyez-la fonctionner
 
