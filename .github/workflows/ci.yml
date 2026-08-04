@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: Check READMEs and plugin stay in sync
+        run: |
+          npm run build
+          git diff --exit-code opencode-plugin/memsem-extract.ts \
+            || echo "::warning::opencode-plugin/memsem-extract.ts is out of sync with src/plugin.ts — run npm run build"

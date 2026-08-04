@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="600" viewBox="0 0 860 600" role="img" aria-label="memsem demo — terminal output">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#0a0e14"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="860" height="600" fill="url(#bg)" rx="12" stroke="#30363d" stroke-width="1.5"/>
+
+  <!-- title bar -->
+  <rect x="0" y="0" width="860" height="36" rx="12" fill="#161b22"/>
+  <rect x="0" y="20" width="860" height="16" fill="#161b22"/>
+  <circle cx="18" cy="18" r="6" fill="#ff5f56"/>
+  <circle cx="38" cy="18" r="6" fill="#ffbd2e"/>
+  <circle cx="58" cy="18" r="6" fill="#27c93f"/>
+  <text x="430" y="23" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" fill="#8b949e">memsem — demo · temporary database</text>
+
+  <!-- output -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13">
+    <text x="24" y="74" fill="#8b949e">$ node scripts/demo.mjs</text>
+    <text x="24" y="96" font-weight="700" fill="#e6edf3">=== memsem — demo on a temporary database ===</text>
+    <text x="24" y="118" fill="#8b949e">(your real memory in ~/.memory-mcp stays untouched)</text>
+
+    <text x="24" y="152" fill="#79c0ff" font-weight="700">1. The AI writes durable facts (memory_add_many)</text>
+    <text x="24" y="174" fill="#a371f7">   → 4 facts written</text>
+
+    <text x="24" y="208" fill="#79c0ff" font-weight="700">2. Strict search (lexical): memory_search { query: 'milk' }</text>
+    <text x="24" y="230" fill="#a371f7">   → user → drinks → milk</text>
+
+    <text x="24" y="264" fill="#79c0ff" font-weight="700">3. Semantic search (relax, local embeddings): memory_search { query: 'cheese', relax: true }</text>
+    <text x="24" y="286" fill="#8b949e">   No shared word with « lactose » — the local semantic index (Ollama) bridges it</text>
+    <text x="24" y="308" fill="#a371f7">   → lactose → is-present-in → cheese, yogurt, cream</text>
+    <text x="24" y="330" fill="#a371f7">   → user → is-intolerant-to → lactose</text>
+    <text x="24" y="352" fill="#a371f7">   → user → drinks → milk</text>
+
+    <text x="24" y="386" fill="#79c0ff" font-weight="700">4. Soft supersession: the AI learns you no longer drink milk</text>
+    <text x="24" y="408" fill="#a371f7">   → conflict: true, old fact faded (faded: [1])</text>
+
+    <text x="24" y="442" fill="#79c0ff" font-weight="700">5. Search now returns the current fact</text>
+    <text x="24" y="464" fill="#a371f7">   → user → drinks → no more milk (lactose intolerant)</text>
+    <text x="24" y="486" fill="#a371f7">   → user → drinks → milk</text>
+
+    <text x="24" y="520" fill="#e6edf3" font-weight="700">Stats: 5 active memories, semantic index OK (mxbai-embed-large)</text>
+    <text x="24" y="552" fill="#8b949e">$ </text>
+  </g>
+</svg>

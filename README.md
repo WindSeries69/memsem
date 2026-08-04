@@ -26,6 +26,7 @@
   <a href="https://www.npmjs.com/package/memsem"><img src="https://img.shields.io/npm/v/memsem" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/memsem" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D22.13-339933" alt="Node >= 22.13">
+  <a href="https://github.com/WindSeries69/memsem/actions"><img src="https://img.shields.io/github/actions/workflow/status/WindSeries69/memsem/ci.yml?branch=main&label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/MCP-server-1f1f1f" alt="MCP server">
   <img src="https://img.shields.io/badge/opencode-plugin-000" alt="opencode plugin">
 </p>
@@ -51,6 +52,10 @@ they keep what you throw at them, never prioritize, never reconcile contradictio
 ## See it work
 
 Install once, let it run. This is a real session on a throwaway database — your actual memory is never touched (`node scripts/demo.mjs`):
+
+<p align="center">
+  <img src="assets/demo.svg" alt="memsem demo — terminal output" width="860">
+</p>
 
 ```
 === memsem — demo on a temporary database ===
