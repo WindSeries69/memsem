@@ -44,7 +44,7 @@ Installez une fois, laissez tourner. Voici une session réelle sur une base jeta
 (ta vraie mémoire dans ~/.memory-mcp reste intacte)
 
 1. L'IA écrit les faits durables (memory_add_many)
-→ 4 faits écrits
+   → 4 faits écrits
 
 2. Recherche stricte (lexicale) : memory_search { query: 'lait' }
    → utilisateur → boit → lait
@@ -56,7 +56,7 @@ Installez une fois, laissez tourner. Voici une session réelle sur une base jeta
    → utilisateur → boit → lait
 
 4. Supersession douce : l'IA apprend que l'utilisateur ne boit plus de lait
-→ conflict: true, ancien fait estompé (faded: [1])
+   → conflict: true, ancien fait estompé (faded: [1])
 
 5. La recherche retrouve le fait actuel
    → utilisateur → boit → plus de lait (intolerant au lactose)

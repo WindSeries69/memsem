@@ -14,7 +14,7 @@ const T =   FR
       title: "=== memsem — démo sur base temporaire ===",
       note: "(ta vraie mémoire dans ~/.memory-mcp reste intacte)",
       s1: "1. L'IA écrit les faits durables (memory_add_many)",
-      s1ok: "→ 4 faits écrits",
+      s1ok: "   → 4 faits écrits",
       s2: "2. Recherche stricte (lexicale) : memory_search { query: 'lait' }",
       s3: "3. Recherche sémantique (relax, embeddings locaux) : memory_search { query: 'fromage', relax: true }",
       s3note: "Aucun mot commun avec « lactose » — c'est l'index sémantique (Ollama, local) qui relie",
