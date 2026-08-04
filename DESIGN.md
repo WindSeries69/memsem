@@ -66,11 +66,12 @@ au lactose.
   (`pinned`) est **intouchable** : aucune contradiction ne le fait bouger.
 - **Tombstone (valeur rejetée)** : la ré-affirmation d'une valeur qui a déjà
   perdu une contradiction ne réinstaure pas le fait d'un coup — elle revient
-  avec une confiance basse (`resurrectConfidence` 0.3), **sans faire
-  s'estomper sa correction**, et le retour est tracé dans l'audit
-  (`reason: resurrection`). La correction ne peut être inversée que par une
-  répétition soutenue de l'utilisateur — jamais par un accident de
-  formulation. Les archivages par supersession sont également audités.
+  avec une confiance basse (`resurrectConfidence` 0.3), estompe à son tour les
+  valeurs concurrentes, et le retour est tracé dans l'audit (`reason:
+  resurrection`). La valeur réaffirmée reste donc moins prioritaire qu'un fait
+  confirmé, jusqu'à une répétition soutenue de l'utilisateur — jamais par un
+  accident de formulation. Les archivages par supersession sont également
+  audités.
 - Le lactose doit remonter quand on parle de lait, mais aussi de **fromage, de
   menu, de recette** : par les liens du graphe et l'index sémantique.
 
@@ -78,8 +79,10 @@ au lactose.
 
 La recherche ne vise pas les tokens. Plusieurs index, comme un cerveau :
 
-1. **Index lexical** (mots-clés) — routage rapide et gratuit.
-2. **Index vectoriel** (sémantique) — les concepts proches sans mots communs.
+1. **Index lexical FTS5** (mots-clés Unicode) — routage rapide et gratuit.
+2. **Index vectoriel** (sémantique) — les concepts proches sans mots communs
+   via embeddings stockés localement ; le ranking cosinus reste linéaire tant
+   qu'aucune extension SQLite vectorielle n'est nécessaire.
 3. **Index de graphe** — les mémoires sont des nœuds reliés entre eux,
    hiérarchisés par thème (un énorme arbre, des liaisons de cerveau).
    Activation en cascade (*spreading activation*) : une mémoire activée active
@@ -154,19 +157,21 @@ Stockage **local** pour l'instant (SQLite), sync multi-appareils plus tard.
 
 ## 8. État actuel
 
-Implémenté et testé (49 tests) :
+Implémenté et testé par la suite d'intégration, de durabilité et de régression :
 
 - Serveur MCP TypeScript (`src/index.ts`), transport stdio, nom `memsem`
 - SQLite local (`src/db.ts`) : `memories` (triplets + importance/confiance/
   fréquence/projet/provenance), `memory_history` (supersession), `edges`
-  (graphe), `episodes` (résumés de sessions + provenance)
+  (graphe), `episodes` (résumés de sessions + provenance), `memory_fts`
+  (index lexical FTS5 synchronisé par triggers)
 - Outils : `memory_add`, `memory_add_many`, `memory_search`, `memory_list`,
   `memory_themes`, `memory_stats`, `memory_index`, `memory_episode_add`,
   `memory_episode_search`, `memory_score`, `memory_forget`
 - Priorité par règles : `0.45×importance + 0.25×confiance + 0.2×récence +
   0.1×fréquence` (demi-vie : 7 jours)
 - Supersession fonctionnelle : objet changé → estompage puis archivage +
-  boost de confiance
+  boost de confiance ; clés sujet/prédicat insensibles à la casse et
+  résurrection qui estompe aussi la contradiction active
 - Graphe : arêtes sur sujet partagé ou chaînes objet==sujet (lait → lactose →
   fromage), propagation **2 sauts** en mode relax (boost ×0.3 par saut)
 - Projet par défaut : `global` — la base vit dans `~/.memory-mcp/memory.db`,
@@ -192,9 +197,9 @@ Implémenté et testé (49 tests) :
 - [x] **Index par thèmes (l'arbre)** — thème hiérarchique sur chaque mémoire
       (`alimentation/boissons`), recherche par sous-arbre, traversée des
       projets ; `memory_themes` = carte de routage du cerveau
-- [x] **Recherche stricte** — seuil lexical 50 %, pas de propagation par
-      défaut ; `relax: true` en opt-in pour l'exploration d'associations
-      (jamais pour répondre)
+- [x] **Recherche stricte** — candidats lexicaux routés par FTS5 Unicode,
+      seuil lexical 50 %, pas de propagation par défaut ; `relax: true` en
+      opt-in pour l'exploration d'associations (jamais pour répondre)
 - [x] **Consolidation de fond (l'hippocampe)** — sub-agent toutes les 6 h à
       l'idle : fusion des petits faits en patterns, vérification « on
       retrouve aussi bien » (re-recherche par mots-clés, top 5 exigé), faits

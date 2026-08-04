@@ -1,6 +1,6 @@
 {
   "name": "memsem",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "description": "Mémoire sémantique persistante et priorisée pour IA (serveur MCP universel)",
   "keywords": [
@@ -45,7 +45,7 @@
   "scripts": {
     "build": "tsc && cp src/plugin.ts opencode-plugin/memsem-extract.ts",
     "start": "node dist/index.js",
-    "test": "npm run build && node dist/test/client-test.js && node dist/test/durability-test.js && node dist/test/config-test.js && node dist/test/score-test.js && node dist/test/cli-test.js && node scripts/bench.mjs",
+    "test": "npm run build && node dist/test/client-test.js && node dist/test/durability-test.js && node dist/test/config-test.js && node dist/test/score-test.js && node dist/test/cli-test.js && node dist/test/regression-test.js && node scripts/bench.mjs",
     "prepublishOnly": "npm test"
   },
   "dependencies": {

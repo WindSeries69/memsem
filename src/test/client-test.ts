@@ -135,8 +135,8 @@ const resurrected = await call(client, "memory_add", {
   object: "lait",
 });
 assert(
-  resurrected.resurrected === true && resurrected.faded.length === 0 && resurrected.archived.length === 0,
-  "tombstone: la valeur rejetee ne fade pas sa correction",
+  resurrected.resurrected === true && resurrected.faded.length === 1 && resurrected.archived.length === 0,
+  "tombstone: la valeur rejetee revient et estompe sa correction",
 );
 assert(
   resurrected.confidence < 0.5,

@@ -30,9 +30,10 @@ export function computePriority({
 
 export function tokenize(text: string): string[] {
   return text
+    .normalize("NFKC")
     .toLowerCase()
-    .split(/[^a-z0-9à-ÿ]+/)
-    .filter((t) => t.length > 1);
+    .split(/[^\p{L}\p{M}\p{N}]+/u)
+    .filter((t) => t.length > 1 || /[^\u0000-\u007f]/u.test(t));
 }
 
 export function overlapRatio(queryTokens: string[], memoryTokens: string[]): number {

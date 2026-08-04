@@ -6,7 +6,7 @@ Tout pour faire tester et découvrir memsem. Chaque texte est prêt à copier-co
 
 - [x] `npm publish` (1.1.0) — public sur npm (windseries)
 - [x] CI verte sur GitHub (badge « build » dans le README)
-- [ ] Release GitHub `v1.1.0` (notes de version)
+- [ ] Release GitHub `v1.2.0` (notes de version)
 - [ ] Lancer `node scripts/demo.mjs` soi-même pour avoir les chiffres frais
 
 ---
@@ -96,7 +96,8 @@ Tout pour faire tester et découvrir memsem. Chaque texte est prêt à copier-co
 3. Le pont sémantique local (Ollama) — capture de la démo (assets/demo.svg).
 4. Le setup universel : plugin opencode une ligne, `memsem setup` pour Claude, MCP partout.
 5. Vie privée : local, par utilisateur, jamais commité.
-6. Leçons apprises + chiffres (49 tests, 16 langues de README).
+6. Leçons apprises + chiffres (suite de tests d'intégration et de régression,
+   16 langues de README).
 
 ---
 

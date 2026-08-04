@@ -25,7 +25,7 @@ export async function embed(text: string): Promise<number[] | null> {
     const res = await fetch(`${OLLAMA_URL}/api/embed`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: EMBED_MODEL, input: text }),
+      body: JSON.stringify({ model: EMBED_MODEL(), input: text }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return null;

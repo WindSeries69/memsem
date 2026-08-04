@@ -63,8 +63,27 @@ export interface SearchHit {
   score: number;
 }
 
+interface MemoryKeyRow {
+  id: number;
+  subject: string;
+  predicate: string;
+  object: string;
+  tags: string;
+  importance: number;
+  confidence: number;
+  frequency: number;
+  pinned: number;
+  archived: number;
+}
+
 function normalizeKey(value: string): string {
   return value.toLowerCase().trim();
+}
+
+function ftsQuery(text: string): string {
+  return [...new Set(tokenize(text))]
+    .map((token) => `"${token.replaceAll('"', '""')}"`)
+    .join(" OR ");
 }
 
 export interface Migration {
@@ -164,6 +183,42 @@ export const MIGRATIONS: Migration[] = [
         );
         CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_audit_pass ON audit_log(pass_id, entity_id);
+      `);
+    },
+  },
+  {
+    version: 4,
+    name: "memory-fts",
+    up: (db) => {
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+          subject,
+          predicate,
+          object,
+          tags,
+          content = 'memories',
+          content_rowid = 'id',
+          tokenize = 'unicode61'
+        );
+        INSERT INTO memory_fts(memory_fts) VALUES ('rebuild');
+        CREATE TRIGGER IF NOT EXISTS memory_fts_ai AFTER INSERT ON memories BEGIN
+          INSERT INTO memory_fts(rowid, subject, predicate, object, tags)
+          VALUES (new.id, new.subject, new.predicate, new.object, new.tags);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_fts_ad AFTER DELETE ON memories BEGIN
+          INSERT INTO memory_fts(memory_fts, rowid, subject, predicate, object, tags)
+          VALUES ('delete', old.id, old.subject, old.predicate, old.object, old.tags);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_fts_au AFTER UPDATE ON memories BEGIN
+          INSERT INTO memory_fts(memory_fts, rowid, subject, predicate, object, tags)
+          VALUES ('delete', old.id, old.subject, old.predicate, old.object, old.tags);
+          INSERT INTO memory_fts(rowid, subject, predicate, object, tags)
+          VALUES (new.id, new.subject, new.predicate, new.object, new.tags);
+        END;
+        CREATE INDEX IF NOT EXISTS idx_memories_link_subject
+          ON memories(project, archived, lower(trim(subject)));
+        CREATE INDEX IF NOT EXISTS idx_memories_link_object
+          ON memories(project, archived, lower(trim(object)));
       `);
     },
   },
@@ -276,6 +331,31 @@ export class MemoryDb {
     this.db.close();
   }
 
+  private memoriesForKey(subject: string, predicate: string, project: string, archived: number | null): MemoryKeyRow[] {
+    const match = ftsQuery(`${subject} ${predicate}`);
+    const archivedClause = archived === null ? "" : " AND m.archived = ?";
+    const params = archived === null ? [match, project] : [match, project, archived];
+    const rows = match
+      ? (this.db
+          .prepare(
+            `SELECT m.id, m.subject, m.predicate, m.object, m.tags, m.importance,
+                    m.confidence, m.frequency, m.pinned, m.archived
+             FROM memories m JOIN memory_fts ON memory_fts.rowid = m.id
+             WHERE memory_fts MATCH ? AND m.project = ?${archivedClause}`,
+          )
+          .all(...params) as unknown as MemoryKeyRow[])
+      : (this.db
+          .prepare(
+            `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, pinned, archived
+             FROM memories
+             WHERE project = ?${archived === null ? "" : " AND archived = ?"}`,
+          )
+          .all(...(archived === null ? [project] : [project, archived])) as unknown as MemoryKeyRow[]);
+    return rows.filter(
+      (row) => normalizeKey(row.subject) === normalizeKey(subject) && normalizeKey(row.predicate) === normalizeKey(predicate),
+    );
+  }
+
   add(input: AddInput): AddResult {
     const now = new Date().toISOString();
     const subject = input.subject.trim();
@@ -285,31 +365,17 @@ export class MemoryDb {
     const theme = input.theme?.trim().toLowerCase() || null;
     const tags = [...new Set((input.tags ?? []).map((t) => t.trim()).filter(Boolean))];
 
-    const rows = this.db
-      .prepare(
-        `SELECT id, object, confidence, frequency, importance, tags, pinned
-         FROM memories WHERE subject = ? AND predicate = ? AND project = ? AND archived = 0`,
-      )
-      .all(normalizeKey(subject), normalizeKey(predicate), input.project) as Array<{
-      id: number;
-      object: string;
-      confidence: number;
-      frequency: number;
-      importance: number;
-      tags: string;
-      pinned: number;
-    }>;
+    const keyRows = this.memoriesForKey(subject, predicate, input.project, null);
+    const rows = keyRows.filter((row) => row.archived === 0);
 
     const exact = rows.find((r) => normalizeKey(r.object) === normalizeKey(object));
 
-    const rejectedValues = (
-      this.db
-        .prepare(
-          `SELECT DISTINCT h.previous FROM memory_history h JOIN memories m ON m.id = h.memory_id
-           WHERE m.subject = ? AND m.predicate = ? AND m.project = ?`,
-        )
-        .all(normalizeKey(subject), normalizeKey(predicate), input.project) as Array<{ previous: string }>
-    ).filter((r) => normalizeKey(r.previous) === normalizeKey(object));
+    const rejectedValues = keyRows.length === 0
+      ? []
+      : (this.db
+          .prepare(`SELECT DISTINCT previous FROM memory_history WHERE memory_id IN (${keyRows.map(() => "?").join(",")})`)
+          .all(...keyRows.map((row) => row.id)) as Array<{ previous: string }>)
+          .filter((r) => normalizeKey(r.previous) === normalizeKey(object));
 
     if (exact) {
       const faded: number[] = [];
@@ -350,19 +416,15 @@ export class MemoryDb {
 
     if (rejectedValues.length > 0) {
       const cfg = getConfig();
-      const archivedRow = (
-        this.db
-          .prepare(
-            `SELECT id, object, confidence, frequency FROM memories
-             WHERE subject = ? AND predicate = ? AND project = ? AND archived = 1`,
-          )
-          .all(normalizeKey(subject), normalizeKey(predicate), input.project) as Array<{
-          id: number;
-          object: string;
-          confidence: number;
-          frequency: number;
-        }>
-      ).find((r) => normalizeKey(r.object) === normalizeKey(object));
+      const faded: number[] = [];
+      const archived: number[] = [];
+      for (const other of rows) {
+        const outcome = this.fade(other, now);
+        if (outcome.untouched) continue;
+        if (outcome.archived) archived.push(outcome.id);
+        else faded.push(outcome.id);
+      }
+      const archivedRow = keyRows.find((r) => r.archived === 1 && normalizeKey(r.object) === normalizeKey(object));
       if (archivedRow) {
         const confidence = clamp01(archivedRow.confidence * cfg.resurrectConfidence + cfg.reinforceConfidenceStep);
         this.db
@@ -372,16 +434,22 @@ export class MemoryDb {
           )
           .run(confidence, now, archivedRow.id);
         this.audit({ entity: "memory", entityId: archivedRow.id, field: "archived", oldValue: "1", newValue: "0", reason: "resurrection" });
+        for (const other of rows) {
+          this.db
+            .prepare(`INSERT OR IGNORE INTO edges (source_id, target_id, relation) VALUES (?, ?, 'contradicts')`)
+            .run(archivedRow.id, other.id);
+        }
+        this.linkMemory(archivedRow.id, subject, object, input.project);
         return {
           id: archivedRow.id,
           created: false,
           changed: true,
-          conflict: false,
+          conflict: faded.length + archived.length > 0,
           resurrected: true,
           confidence,
           frequency: archivedRow.frequency + 1,
-          faded: [],
-          archived: [],
+          faded,
+          archived,
           history: this.historyOf(archivedRow.id),
         };
       }
@@ -392,17 +460,22 @@ export class MemoryDb {
         )
         .run(subject, predicate, object, JSON.stringify(tags), importance, cfg.resurrectConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
       const id = Number(info.lastInsertRowid);
+      for (const other of rows) {
+        this.db
+          .prepare(`INSERT OR IGNORE INTO edges (source_id, target_id, relation) VALUES (?, ?, 'contradicts')`)
+          .run(id, other.id);
+      }
       this.linkMemory(id, subject, object, input.project);
       return {
         id,
         created: true,
         changed: true,
-        conflict: false,
+        conflict: faded.length + archived.length > 0,
         resurrected: true,
         confidence: cfg.resurrectConfidence,
         frequency: 1,
-        faded: [],
-        archived: [],
+        faded,
+        archived,
         history: [],
       };
     }
@@ -416,12 +489,13 @@ export class MemoryDb {
         if (outcome.archived) archived.push(outcome.id);
         else faded.push(outcome.id);
       }
+      const cfg = getConfig();
       const info = this.db
         .prepare(
           `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, created_at, updated_at, pinned, theme)
            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(subject, predicate, object, JSON.stringify(tags), importance, getConfig().supersedeConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
+        .run(subject, predicate, object, JSON.stringify(tags), importance, cfg.supersedeConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
       const id = Number(info.lastInsertRowid);
       for (const other of rows) {
         this.db
@@ -435,7 +509,7 @@ export class MemoryDb {
         changed: true,
         conflict: true,
         resurrected: false,
-        confidence: 0.6,
+        confidence: cfg.supersedeConfidence,
         frequency: 1,
         faded,
         archived,
@@ -443,12 +517,13 @@ export class MemoryDb {
       };
     }
 
+    const cfg = getConfig();
     const info = this.db
       .prepare(
         `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, created_at, updated_at, pinned, theme)
          VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(subject, predicate, object, JSON.stringify(tags), importance, getConfig().initialConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
+      .run(subject, predicate, object, JSON.stringify(tags), importance, cfg.initialConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
     const id = Number(info.lastInsertRowid);
     this.linkMemory(id, subject, object, input.project);
     return {
@@ -457,7 +532,7 @@ export class MemoryDb {
       changed: false,
       conflict: false,
       resurrected: false,
-      confidence: 0.5,
+      confidence: cfg.initialConfidence,
       frequency: 1,
       faded: [],
       archived: [],
@@ -466,12 +541,26 @@ export class MemoryDb {
   }
 
   private linkMemory(id: number, subject: string, object: string, project: string): void {
-    const others = this.db
-      .prepare(
-        `SELECT id, subject, object FROM memories
-         WHERE project = ? AND archived = 0 AND id != ?`,
-      )
-      .all(project, id) as Array<{ id: number; subject: string; object: string }>;
+    const match = ftsQuery(`${subject} ${object}`);
+    const others = match
+      ? (this.db
+          .prepare(
+            `SELECT m.id, m.subject, m.object
+             FROM memories m JOIN memory_fts ON memory_fts.rowid = m.id
+             WHERE memory_fts MATCH ? AND m.project = ? AND m.archived = 0 AND m.id != ?`,
+          )
+          .all(match, project, id) as Array<{ id: number; subject: string; object: string }>)
+      : (this.db
+          .prepare(
+            `SELECT id, subject, object FROM memories
+             WHERE project = ? AND archived = 0 AND id != ?
+               AND (lower(trim(subject)) IN (?, ?) OR lower(trim(object)) = ?)`,
+          )
+          .all(project, id, normalizeKey(subject), normalizeKey(object), normalizeKey(subject)) as Array<{
+          id: number;
+          subject: string;
+          object: string;
+        }>);
     const key = normalizeKey;
     for (const other of others) {
       const linked =
@@ -568,31 +657,36 @@ export class MemoryDb {
 
   async search(query: string, project: string | null, theme: string | null, limit: number, relax: boolean = false, focus: string[] | null = null): Promise<SearchHit[]> {
     const where = this.whereClause(project, theme);
-    const rows = this.db
-      .prepare(
-        `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, pinned, theme, updated_at
-         FROM memories WHERE ${where.sql}`,
-      )
-      .all(...where.params) as Array<{
-      id: number;
-      subject: string;
-      predicate: string;
-      object: string;
-      tags: string;
-      importance: number;
-      confidence: number;
-      frequency: number;
-      project: string;
-      pinned: number;
-      theme: string | null;
-      updated_at: string;
-    }>;
+    const match = ftsQuery(query);
+    const rows = match
+      ? (this.db
+          .prepare(
+            `SELECT m.id, m.subject, m.predicate, m.object, m.tags, m.importance, m.confidence,
+                    m.frequency, m.project, m.pinned, m.theme, m.updated_at
+             FROM memories m JOIN memory_fts ON memory_fts.rowid = m.id
+             WHERE memory_fts MATCH ? AND ${where.sql}`,
+          )
+          .all(match, ...where.params) as Array<{
+            id: number;
+            subject: string;
+            predicate: string;
+            object: string;
+            tags: string;
+            importance: number;
+            confidence: number;
+            frequency: number;
+            project: string;
+            pinned: number;
+            theme: string | null;
+            updated_at: string;
+          }>)
+      : [];
     const hits: SearchHit[] = [];
     for (const row of rows) {
       const tags = JSON.parse(row.tags) as string[];
       hits.push({ ...row, pinned: row.pinned === 1, tags, priority: this.priorityOf(row), score: 0 });
     }
-    const withBase = hits.map((h) => ({ ...h, score: searchScore(query, h), lexical: lexicalScore(query, h) }));
+    let withBase = hits.map((h) => ({ ...h, score: searchScore(query, h), lexical: lexicalScore(query, h) }));
     const seeded = withBase
       .filter((h) => h.lexical > 0 && (relax || h.lexical >= minLexical()))
       .sort((a, b) => b.score - a.score);
@@ -619,13 +713,41 @@ export class MemoryDb {
         neighbors.add(e.source_id);
         neighbors.add(e.target_id);
       }
+      const idsToLoad = [...neighbors].filter((id) => !activated.has(id));
       const next: Array<typeof withBase[number]> = [];
-      for (const h of withBase) {
-        if (neighbors.has(h.id) && !activated.has(h.id)) {
-          h.score = best * Math.pow(cfg.relaxGraphBoost, hop);
+      if (idsToLoad.length > 0) {
+        const neighborRows = this.db
+          .prepare(
+            `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, pinned, theme, updated_at
+             FROM memories WHERE id IN (${idsToLoad.map(() => "?").join(",")}) AND ${where.sql}`,
+          )
+          .all(...idsToLoad, ...where.params) as Array<{
+          id: number;
+          subject: string;
+          predicate: string;
+          object: string;
+          tags: string;
+          importance: number;
+          confidence: number;
+          frequency: number;
+          project: string;
+          pinned: number;
+          theme: string | null;
+          updated_at: string;
+        }>;
+        for (const row of neighborRows) {
+          const h = {
+            ...row,
+            pinned: row.pinned === 1,
+            tags: JSON.parse(row.tags) as string[],
+            priority: this.priorityOf(row),
+            score: best * Math.pow(cfg.relaxGraphBoost, hop),
+            lexical: 0,
+          };
           activated.add(h.id);
           next.push(h);
         }
+        withBase = [...withBase, ...next];
       }
       frontier = next;
     }
@@ -684,6 +806,7 @@ export class MemoryDb {
     const qv = await embed(query);
     if (!qv) return [];
     const where = this.whereClause(project, theme);
+    // ponytail: cosine over stored JSON is O(n); add a SQLite vector extension only when corpus size justifies it.
     const rows = this.db
       .prepare(
         `SELECT id, subject, predicate, object, tags, importance, confidence, frequency, project, pinned, theme, embedding, updated_at

@@ -74,7 +74,7 @@ via l'index sémantique local (Ollama). Le cerveau relie, il ne copie pas.
 
 ## Les chiffres qui rassurent
 
-- 49 tests d'intégration, CI verte sur Node 22 + 24
+- suite de tests d'intégration et de régression, CI verte sur Node 22 + 24
 - 16 langues de documentation
 - `npm i memsem` → 74 kB, zéro dépendance native, Node ≥ 22.13
 - Installable en une commande sur opencode, Claude Code, et tout client MCP
