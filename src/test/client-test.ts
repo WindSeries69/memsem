@@ -129,11 +129,50 @@ assert(hits.length >= 2, "recherche lait relax: nouvelle variante + intolerance 
 const intolerance = hits.find((h) => h.predicate === "intolerant a" && h.object === "lactose");
 assert(!!intolerance && intolerance.score > 0, "relax: l'intolerance remonte sur une recherche lait via le graphe");
 
+const resurrected = await call(client, "memory_add", {
+  subject: "utilisateur",
+  predicate: "boit",
+  object: "lait",
+});
+assert(
+  resurrected.resurrected === true && resurrected.faded.length === 0 && resurrected.archived.length === 0,
+  "tombstone: la valeur rejetee ne fade pas sa correction",
+);
+assert(
+  resurrected.confidence < 0.5,
+  "tombstone: la valeur rejetee revient avec une confiance basse",
+);
+const afterResurrect = await call(client, "memory_search", { query: "lait", project: "test-proj", limit: 10 }) as Array<{
+  predicate: string;
+  object: string;
+}>;
+const correction = afterResurrect.find((h) => h.predicate === "boit" && h.object.includes("intolerance"));
+assert(!!correction, "tombstone: la correction reste vivante apres la re-affirmation");
+
+const guard = await call(client, "memory_add", {
+  subject: "utilisateur",
+  predicate: "a-pour-regle",
+  object: "jamais de coca",
+  pin: true,
+});
+assert(guard.created === true, "memoire epinglee creee");
+const attack = await call(client, "memory_add", {
+  subject: "utilisateur",
+  predicate: "a-pour-regle",
+  object: "coca chaque jour",
+});
+assert(
+  attack.faded.length === 0 && attack.archived.length === 0,
+  "pin: la memoire epinglee survit a la contradiction",
+);
+
 const list = await call(client, "memory_list", { limit: 10 }) as Array<{
   importance: number;
   project: string;
+  pinned: boolean;
 }>;
-assert(list[0].importance === 0.9, "priorite : l'important ponctuel bat le recurrent");
+const firstUnpinned = list.find((m) => !m.pinned);
+assert(!!firstUnpinned && firstUnpinned.importance === 0.9, "priorite : l'important ponctuel bat le recurrent (apres les epinglees)");
 assert(list.every((m) => m.project === "test-proj"), "filtre par projet");
 
 const episode = await call(client, "memory_episode_add", {
@@ -176,7 +215,7 @@ const listPinned = await call(client, "memory_list", { limit: 20 }) as Array<{ p
 assert(listPinned[0].pinned === true, "pinning: l'epinglee est en tete de contexte");
 
 const stats = await call(client, "memory_stats", {}) as { memoriesActive: number; pinned: number; edges: number };
-assert(stats.memoriesActive >= 5 && stats.pinned === 1 && stats.edges >= 2, "stats coherentes");
+assert(stats.memoriesActive >= 5 && stats.pinned >= 1 && stats.edges >= 2, "stats coherentes");
 
 const themed = await call(client, "memory_add", {
   subject: "utilisateur",
@@ -325,8 +364,10 @@ assert(
 await client.close();
 
 const raw = new DatabaseSync(dbPath, { readOnly: true });
-const archivedCount = raw.prepare("SELECT COUNT(*) AS n FROM memories WHERE archived = 1 AND object = 'lait'").get() as { n: number };
-assert(archivedCount.n === 1, "base: l'ancien lait est archive");
+const superseded = raw.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE field = 'archived' AND reason = 'supersession'").get() as { n: number };
+assert(superseded.n >= 1, "base: l'archivage par supersession est audite");
+const resurrectedAudit = raw.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE reason = 'resurrection'").get() as { n: number };
+assert(resurrectedAudit.n >= 1, "base: la resurrection tombstone est auditee");
 const historyRows = raw.prepare("SELECT previous FROM memory_history").all() as Array<{ previous: string }>;
 assert(historyRows.some((h) => h.previous === "lait"), "base: l'historique conserve l'ancien objet");
 raw.close();

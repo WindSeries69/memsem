@@ -40,6 +40,7 @@ export interface AddResult {
   created: boolean;
   changed: boolean;
   conflict: boolean;
+  resurrected: boolean;
   confidence: number;
   frequency: number;
   faded: number[];
@@ -286,7 +287,7 @@ export class MemoryDb {
 
     const rows = this.db
       .prepare(
-        `SELECT id, object, confidence, frequency, importance, tags
+        `SELECT id, object, confidence, frequency, importance, tags, pinned
          FROM memories WHERE subject = ? AND predicate = ? AND project = ? AND archived = 0`,
       )
       .all(normalizeKey(subject), normalizeKey(predicate), input.project) as Array<{
@@ -296,9 +297,19 @@ export class MemoryDb {
       frequency: number;
       importance: number;
       tags: string;
+      pinned: number;
     }>;
 
     const exact = rows.find((r) => normalizeKey(r.object) === normalizeKey(object));
+
+    const rejectedValues = (
+      this.db
+        .prepare(
+          `SELECT DISTINCT h.previous FROM memory_history h JOIN memories m ON m.id = h.memory_id
+           WHERE m.subject = ? AND m.predicate = ? AND m.project = ?`,
+        )
+        .all(normalizeKey(subject), normalizeKey(predicate), input.project) as Array<{ previous: string }>
+    ).filter((r) => normalizeKey(r.previous) === normalizeKey(object));
 
     if (exact) {
       const faded: number[] = [];
@@ -306,6 +317,7 @@ export class MemoryDb {
       for (const other of rows) {
         if (other.id === exact.id) continue;
         const outcome = this.fade(other, now);
+        if (outcome.untouched) continue;
         if (outcome.archived) archived.push(outcome.id);
         else faded.push(outcome.id);
       }
@@ -327,6 +339,7 @@ export class MemoryDb {
         created: false,
         changed: false,
         conflict: faded.length + archived.length > 0,
+        resurrected: false,
         confidence,
         frequency: exact.frequency + 1,
         faded,
@@ -335,11 +348,71 @@ export class MemoryDb {
       };
     }
 
+    if (rejectedValues.length > 0) {
+      const cfg = getConfig();
+      const archivedRow = (
+        this.db
+          .prepare(
+            `SELECT id, object, confidence, frequency FROM memories
+             WHERE subject = ? AND predicate = ? AND project = ? AND archived = 1`,
+          )
+          .all(normalizeKey(subject), normalizeKey(predicate), input.project) as Array<{
+          id: number;
+          object: string;
+          confidence: number;
+          frequency: number;
+        }>
+      ).find((r) => normalizeKey(r.object) === normalizeKey(object));
+      if (archivedRow) {
+        const confidence = clamp01(archivedRow.confidence * cfg.resurrectConfidence + cfg.reinforceConfidenceStep);
+        this.db
+          .prepare(
+            `UPDATE memories SET archived = 0, confidence = ?, frequency = frequency + 1, updated_at = ?
+             WHERE id = ?`,
+          )
+          .run(confidence, now, archivedRow.id);
+        this.audit({ entity: "memory", entityId: archivedRow.id, field: "archived", oldValue: "1", newValue: "0", reason: "resurrection" });
+        return {
+          id: archivedRow.id,
+          created: false,
+          changed: true,
+          conflict: false,
+          resurrected: true,
+          confidence,
+          frequency: archivedRow.frequency + 1,
+          faded: [],
+          archived: [],
+          history: this.historyOf(archivedRow.id),
+        };
+      }
+      const info = this.db
+        .prepare(
+          `INSERT INTO memories (subject, predicate, object, tags, importance, confidence, frequency, project, provenance, created_at, updated_at, pinned, theme)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(subject, predicate, object, JSON.stringify(tags), importance, cfg.resurrectConfidence, input.project, input.provenance ?? null, now, now, input.pin ? 1 : 0, theme);
+      const id = Number(info.lastInsertRowid);
+      this.linkMemory(id, subject, object, input.project);
+      return {
+        id,
+        created: true,
+        changed: true,
+        conflict: false,
+        resurrected: true,
+        confidence: cfg.resurrectConfidence,
+        frequency: 1,
+        faded: [],
+        archived: [],
+        history: [],
+      };
+    }
+
     if (rows.length > 0) {
       const faded: number[] = [];
       const archived: number[] = [];
       for (const other of rows) {
         const outcome = this.fade(other, now);
+        if (outcome.untouched) continue;
         if (outcome.archived) archived.push(outcome.id);
         else faded.push(outcome.id);
       }
@@ -361,6 +434,7 @@ export class MemoryDb {
         created: true,
         changed: true,
         conflict: true,
+        resurrected: false,
         confidence: 0.6,
         frequency: 1,
         faded,
@@ -382,6 +456,7 @@ export class MemoryDb {
       created: true,
       changed: false,
       conflict: false,
+      resurrected: false,
       confidence: 0.5,
       frequency: 1,
       faded: [],
@@ -413,10 +488,15 @@ export class MemoryDb {
     }
   }
 
-  private fade(row: { id: number; object: string; confidence: number; importance: number }, now: string): { id: number; archived: boolean } {
+  private fade(row: { id: number; object: string; confidence: number; importance: number; pinned: number }, now: string): { id: number; archived: boolean; untouched: boolean } {
+    if (row.pinned === 1) return { id: row.id, archived: false, untouched: true };
     const cfg = getConfig();
-    const factor = row.importance >= cfg.criticalImportance ? cfg.criticalFadeFactor : cfg.fadeFactor;
-    const next = row.confidence * factor;
+    if (row.importance >= cfg.criticalImportance) {
+      const next = Math.max(row.confidence * cfg.criticalFadeFactor, cfg.archiveThreshold + 0.01);
+      this.db.prepare(`UPDATE memories SET confidence = ? WHERE id = ?`).run(next, row.id);
+      return { id: row.id, archived: false, untouched: false };
+    }
+    const next = row.confidence * cfg.fadeFactor;
     if (next < cfg.archiveThreshold) {
       this.db
         .prepare(`UPDATE memories SET archived = 1, updated_at = ? WHERE id = ?`)
@@ -424,10 +504,11 @@ export class MemoryDb {
       this.db
         .prepare(`INSERT INTO memory_history (memory_id, previous, changed_at) VALUES (?, ?, ?)`)
         .run(row.id, row.object, now);
-      return { id: row.id, archived: true };
+      this.audit({ entity: "memory", entityId: row.id, field: "archived", oldValue: "0", newValue: "1", reason: "supersession" });
+      return { id: row.id, archived: true, untouched: false };
     }
     this.db.prepare(`UPDATE memories SET confidence = ? WHERE id = ?`).run(next, row.id);
-    return { id: row.id, archived: false };
+    return { id: row.id, archived: false, untouched: false };
   }
 
   private historyOf(memoryId: number): Array<{ previous: string; changedAt: string }> {

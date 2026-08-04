@@ -22,6 +22,7 @@ export interface MemSemConfig {
   reinforceConfidenceStep: number;
   initialConfidence: number;
   supersedeConfidence: number;
+  resurrectConfidence: number;
   searchLexicalWeight: number;
   searchPriorityWeight: number;
   embedModel: string;
@@ -43,6 +44,7 @@ const DEFAULTS: MemSemConfig = {
   reinforceConfidenceStep: 0.1,
   initialConfidence: 0.5,
   supersedeConfidence: 0.6,
+  resurrectConfidence: 0.3,
   searchLexicalWeight: 0.7,
   searchPriorityWeight: 0.3,
   embedModel: "mxbai-embed-large",
@@ -85,6 +87,7 @@ export function getConfig(): MemSemConfig {
     reinforceConfidenceStep: num(file.reinforceConfidenceStep, DEFAULTS.reinforceConfidenceStep),
     initialConfidence: num(file.initialConfidence, DEFAULTS.initialConfidence),
     supersedeConfidence: num(file.supersedeConfidence, DEFAULTS.supersedeConfidence),
+    resurrectConfidence: num(file.resurrectConfidence, DEFAULTS.resurrectConfidence),
     searchLexicalWeight: num(file.searchLexicalWeight, DEFAULTS.searchLexicalWeight),
     searchPriorityWeight: num(file.searchPriorityWeight, DEFAULTS.searchPriorityWeight),
     embedModel: typeof file.embedModel === "string" && file.embedModel.trim() ? file.embedModel : DEFAULTS.embedModel,

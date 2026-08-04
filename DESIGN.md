@@ -61,9 +61,16 @@ au lactose.
 - Mécanisme de **supersession douce** : à une contradiction, le nouveau fait
   coexiste avec l'ancien qui **s'estompe** (confiance ×0.6, ×0.9 si le fait
   est critique) ; sous le seuil 0.25, il est **archivé avec date et raison**
-  (traçabilité, retour arrière possible). Ré-affirmer un fait réactive
-  l'ancien dynamiquement. Un fait critique (0.9+) ne s'estompe presque pas et
-  bat toujours un pattern récurrent.
+  (traçabilité, retour arrière possible). Un fait critique (0.8+) ne
+  s'estompe presque pas et **n'est jamais archivé** ; un fait épinglé
+  (`pinned`) est **intouchable** : aucune contradiction ne le fait bouger.
+- **Tombstone (valeur rejetée)** : la ré-affirmation d'une valeur qui a déjà
+  perdu une contradiction ne réinstaure pas le fait d'un coup — elle revient
+  avec une confiance basse (`resurrectConfidence` 0.3), **sans faire
+  s'estomper sa correction**, et le retour est tracé dans l'audit
+  (`reason: resurrection`). La correction ne peut être inversée que par une
+  répétition soutenue de l'utilisateur — jamais par un accident de
+  formulation. Les archivages par supersession sont également audités.
 - Le lactose doit remonter quand on parle de lait, mais aussi de **fromage, de
   menu, de recette** : par les liens du graphe et l'index sémantique.
 
