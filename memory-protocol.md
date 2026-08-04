@@ -100,8 +100,12 @@ La priorité finale combine importance + confiance (renforcée à chaque répét
 
 ## Projet
 
-Le projet par défaut est le répertoire courant. La recherche sans projet est le
-fallback global — utilise-la quand l'information peut venir d'ailleurs.
+Le projet par défaut est `global` : la base vit dans `~/.memory-mcp/memory.db`
+(ou le chemin de `MEMORY_DB_PATH`), partagée entre **tous** les repos — créer
+un nouveau dossier/repo ne réinitialise rien, la mémoire reste entière. La
+recherche sans projet est le fallback global — utilise-la quand l'information
+peut venir d'ailleurs. Un `project` explicite ne sert qu'à isoler un contexte
+particulier.
 
 ## Fin de session
 

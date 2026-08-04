@@ -90,9 +90,6 @@ export class MemoryDb {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_live
-        ON memories(subject, predicate, project)
-        WHERE archived = 0;
       CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
       CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(archived);
 

@@ -13,65 +13,73 @@ Voir [DESIGN.md](DESIGN.md) pour la conception complète (vision, principes, cas
 - **Recherche stricte par défaut** : seuil lexical de 50 % des mots de la requête, pas de propagation de graphe — avec une grande mémoire, la précision prime. `relax: true` pour explorer les associations.
 - **Index sémantique local (Ollama, optionnel)** : chaque mémoire est embarquée (`mxbai-embed-large`, configurable) en arrière-plan ; en mode `relax`, la similarité cosinus (seuil 0.5) fait le pont conceptuel — « fromage » retrouve « lactose » sans mot commun. Sans Ollama, le système fonctionne identiquement.
 - **Thèmes** : chaque mémoire a un thème hiérarchique (`alimentation/boissons`) ; la recherche par thème traverse tous les projets — une mémoire écrite dans `global` ressort dans n'importe quel projet quand le sujet correspond.
-- **Projets** : une mémoire est rattachée à un projet (répertoire courant par défaut). La recherche peut rester dans le projet ou tomber en fallback global.
+- **Projets** : une mémoire est rattachée à un projet (`global` par défaut — la base est partagée entre tous les repos, un nouveau dossier ne réinitialise rien). La recherche peut rester dans le projet ou tomber en fallback global.
 
 ## Installation
 
 Le paquet npm est la source unique : chaque hôte le lance sans téléchargement
-manuel ni build (`npx -y memsem`). Installation depuis la source :
+manuel ni build (`npx -y memsem`). La base de données est créée au premier
+lancement dans `~/.memory-mcp/memory.db` (chemin surchargeable par
+`MEMORY_DB_PATH`), l'index dans `~/.memsem/` — partagés entre **tous** les
+repos et projets.
 
-```bash
-git clone <ce-dépôt> && cd <ce-dépôt>
-npm install
-npm run build
-```
+## Installation — un pas par IA
 
-La base de données est créée au premier lancement dans `~/.memory-mcp/memory.db`
-(chemin surchargeable par la variable `MEMORY_DB_PATH`).
+### opencode (recommandé)
 
-## Brancher sur n'importe quelle IA (MCP)
-
-| Hôte | Configuration |
-| --- | --- |
-| Universel | `npx -y memsem` |
-| Installation globale | `npm i -g memsem` puis `memsem` |
-| opencode (`opencode.json`) | `"mcp": { "memory": { "type": "local", "command": ["npx", "-y", "memsem"], "enabled": true } }` |
-| Claude Code | `claude mcp add memory -- npx -y memsem` |
-
-## Brancher sur opencode
-
-1. Copier le protocole une fois chez soi (le fichier n'a pas de chemin stable
-   avec `npx`) : `mkdir -p ~/.memsem && cp memory-protocol.md ~/.memsem/`
-2. Dans `opencode.json` (projet ou `~/.config/opencode/opencode.json`) :
+**Une seule ligne.** Soit dans `opencode.json` (projet ou
+`~/.config/opencode/opencode.json`) :
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "instructions": [
-    "/chemin/vers/~/.memsem/memory-protocol.md",
-    "/chemin/vers/~/.memsem/memory-index.md"
-  ],
-  "mcp": {
-    "memory": {
-      "type": "local",
-      "command": ["npx", "-y", "memsem"],
-      "enabled": true
-    }
-  }
+  "plugin": ["memsem"]
 }
 ```
 
-L'index (`memory-index.md`) est généré automatiquement au premier démarrage du
-serveur. Redémarrer opencode. Le projet par défaut est le répertoire courant ;
-surcharge possible avec `"environment": { "MEMORY_PROJECT": "mon-projet" }`.
+…soit la commande auto :
 
-## Brancher sur Claude Code
+```bash
+npx -y memsem setup
+```
+
+Le plugin `memsem` fait **tout** automatiquement à chaque session :
+enregistre le serveur MCP `memory` (`npx -y memsem`), copie
+`memory-protocol.md` dans `~/.memsem/` et l'injecte dans les instructions,
+injecte l'index `~/.memsem/memory-index.md`, autorise `~/.memsem/**`,
+et pilote l'extraction/consolidation/scoring de fond (voir plus bas).
+Redémarrer opencode. Rien d'autre à faire.
+
+### Claude Code
+
+```bash
+npx -y memsem setup
+```
+
+…ou manuellement :
 
 ```bash
 claude mcp add memory -- npx -y memsem
 ```
 
-Pour l'autonomie : copier `memory-protocol.md` dans `CLAUDE.md` du projet.
+Puis copier `memory-protocol.md` dans `CLAUDE.md` (le setup le fait tout
+seul ; il ajoute aussi un bloc « Mémoire persistante — memsem » qui pointe
+vers `~/.memsem/memory-protocol.md`).
+
+**Installer avec l'IA (Claude)** : colle-lui simplement :
+
+> Installe la mémoire persistante memsem : lance `npx -y memsem setup`,
+> lis `~/.memsem/memory-protocol.md` et applique le protocole.
+
+### N'importe quel client MCP
+
+```bash
+npx -y memsem
+```
+
+Le serveur s'expose en stdio (MCP universel). Injectez
+`memory-protocol.md` dans les instructions de l'hôte (`AGENTS.md` pour les
+autres agents) pour rendre l'IA autonome.
 
 ## Autonomie de l'IA
 
@@ -96,8 +104,9 @@ toujours en tête de `memory_list` (contexte systématique).
 
 ## Extraction de fin de session (autonome)
 
-Le plugin opencode `opencode-plugin/memsem-extract.ts` rend l'extraction
-automatique et asynchrone :
+Le plugin opencode (`memsem`, ou le fichier autonome
+`opencode-plugin/memsem-extract.ts`) rend l'extraction automatique et
+asynchrone :
 
 1. Quand une session passe en idle (90 s après le dernier échange), le plugin
    fait relire la conversation par un sub-agent sandboxé (outils mémoire
@@ -119,8 +128,10 @@ deux garde-fous :
   jamais touchés.
 - **Frugalité** : maximum 3 consolidations par passe.
 
-Installation : copier le fichier dans `.opencode/plugin/` (projet) ou
-`~/.config/opencode/plugin/` (global), puis redémarrer opencode. L'état des
+Installation : le plugin est déjà actif via `"plugin": ["memsem"]` ou
+`npx -y memsem setup` — rien à copier. (Variante fichier : copier
+`opencode-plugin/memsem-extract.ts` dans `.opencode/plugin/` ou
+`~/.config/opencode/plugin/`, puis redémarrer opencode.) L'état des
 sessions déjà extraites est gardé dans `~/.memsem/extracted.json`.
 
 ### Exemples

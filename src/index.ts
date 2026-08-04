@@ -8,8 +8,19 @@ import path from "node:path";
 import { MemoryDb } from "./db.js";
 import { ollamaAvailable, EMBED_MODEL } from "./embed.js";
 
+// Mode auto-installation : `npx -y memsem setup` configure l'hôte IA (opencode, claude).
+if (process.argv[2] === "setup") {
+  const { runSetup } = await import("./setup.js");
+  await runSetup(process.argv.slice(3));
+  process.exit(0);
+}
+
+const pkg = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
+
 const dbPath = process.env.MEMORY_DB_PATH ?? path.join(process.env.HOME ?? ".", ".memory-mcp", "memory.db");
-const defaultProject = process.env.MEMORY_PROJECT ?? path.basename(process.cwd());
+const defaultProject = process.env.MEMORY_PROJECT ?? "global";
 const indexPath = process.env.MEMSEM_INDEX_PATH ?? path.join(os.homedir(), ".memsem", "memory-index.md");
 
 const db = new MemoryDb(dbPath);
@@ -42,7 +53,7 @@ void backfillEmbeddings();
 
 const server = new McpServer({
   name: "memsem",
-  version: "0.2.0",
+  version: pkg.version,
 });
 
 server.registerTool(
@@ -63,7 +74,7 @@ server.registerTool(
         .describe("Importance intrinsèque 0..1 (défaut 0.5). 0.9+ = fait critique qui doit l'emporter"),
       tags: z.array(z.string()).optional().describe("Mots-clés pour la recherche lexicale"),
       theme: z.string().optional().describe("Thème hiérarchique, ex: alimentation/boissons. Sert de carte de routage : une recherche par thème traverse les projets"),
-      project: z.string().optional().describe("Projet (défaut: répertoire courant)"),
+      project: z.string().optional().describe("Projet (défaut: global — la mémoire traverse tous les repos)"),
       provenance: z.string().optional().describe("Référence de la session d'origine"),
       pin: z.boolean().optional().describe("Épingle la mémoire : toujours en tête de contexte (memory_list)"),
     },
@@ -105,7 +116,7 @@ server.registerTool(
           }),
         )
         .min(1),
-      project: z.string().optional().describe("Projet (défaut: répertoire courant)"),
+      project: z.string().optional().describe("Projet (défaut: global — la mémoire traverse tous les repos)"),
       provenance: z.string().optional(),
     },
   },
