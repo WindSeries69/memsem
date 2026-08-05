@@ -198,7 +198,66 @@ Implémenté et testé par la suite d'intégration, de durabilité et de régres
   `npx -y memsem setup` pour opencode et Claude Code ; base par utilisateur,
   jamais commitée
 
-## 9. Feuille de route
+## 9. Bilan du review externe (Agent Memory Atlas)
+
+Le système est audité publiquement par [Agent Memory
+Atlas](https://neoneye.github.io/agent-memory-atlas/systems/memsem/), qui le
+note **7 marques sur 7** de sa grille (Tombstone, Trust state, Bi-temporal,
+Scope, Audit, Human review, Negative evals), toutes vérifiées contre le module
+construit à `16c28a94` (1.3.0). Deux lectures indépendantes y ont convergé :
+une ouverte par l'auteur de memsem (PR contre l'atlas) et la relecture du
+mainteneur de l'atlas.
+
+### Ce que le review reconnaît
+
+- **Tombstone (valeur rejetée)** — `memory_suppressions` clé sur la valeur
+  normalisée (sujet + prédicat + objet + projet), `blockedBySuppression()`
+  première instruction de `add()`, armée seulement par un rejet humain de
+  candidat, levée uniquement par `memory_unsuppress` (audité) : refus sans
+  ligne écrite, sans estompage. C'est « le shape que l'atlas demande et trouve
+  rarement ».
+- **Trust d'état** — `inferred` / `verbatim` / `verified`, le niveau haut
+  refusé par les schémas des tools d'ajout (seul `memory_verify` y mène, avec
+  preuve non vide et 2 lignes d'audit).
+- **Bi-temporel** — `recorded_at` séparé de `valid_from` / `valid_until`,
+  filtré sur chaque lecture, requêtes `asOf`.
+- **Scope explicite** — le `project` est gardé sur tout chemin de lecture,
+  `crossProject: true` requis pour le franchir.
+- **Audit avec raison, pass et dry-run** — « le meilleur truc du schéma » :
+  très peu de systèmes de la corpus enregistrent une mutation refusée ou
+  simulée ; memsem enregistre les deux.
+- **Revue humaine** — candidats `pending` hors de tout chemin de lecture.
+- **Évaluations négatives** — cinq cas négatifs committés + suite de
+  gouvernance écrite en cas adverses, pas en chemins heureux.
+
+### Faiblesses relevées (gaps)
+
+Le review nomme six faiblesses réelles, qui sont aussi la feuille de route :
+
+1. **La supersession automatique n'écrit aucune suppression.** Le chemin d'un
+   extracteur qui relit dix fois le même vieux transcript n'a pas de verrou :
+   une correction ordinaire est archivée à la **3ᵉ ré-assertion**, et même une
+   correction épinglée — qui ne perd jamais de confiance — quitte la 1ʳᵉ place
+   de `memory_search` à la **6ᵉ** (le pin n'est pas un terme du rang). Le pin
+   garantit la survie, pas la visibilité.
+2. **`import` écrit derrière la porte** — une valeur supprimée revient vivante
+   depuis un dump.
+3. **Un refus écrit ne laisse pas de ligne d'audit** — l'événement de
+   gouvernance le plus automatique est le seul non journalisé.
+4. **`purge` d'un fait revu laisse son texte dans `memory_candidates`.**
+5. **`edit` peut écrire une valeur supprimée** (défendable, mais
+   indifférencié dans le log).
+6. **Les règles de consolidation et d'extraction sont des prompts, pas du
+   code** — la protection épinglée/critique y est une consigne au LLM, pas un
+   check de base.
+
+L'open question centrale, posée par le mainteneur de l'atlas : *peut-il
+exister une forme où la porte refuse au nom du chemin automatique, sans
+abandonner la position « la répétition est preuve » ?*
+
+## 10. Feuille de route
+
+Fait, avec la version en cours :
 
 - [x] **Extraction de fin de session** — plugin opencode sur `session.idle` :
       sub-agent sandboxé relit la conversation (90 s après le dernier
@@ -254,6 +313,31 @@ Implémenté et testé par la suite d'intégration, de durabilité et de régres
       réaffirmation bloquée, la fuite de scope, la revalidation, la purge et
       l'import/export ; verts sur base temporelle et clone propre
 
+Prévu (réponses aux gaps du review) :
+
+- [ ] **Décision supersession ↔ tombstone** — trancher la question centrale du
+      review : la supersession automatique doit-elle écrire une suppression
+      quand elle archive, ou bien garder le rejet réservé à l'humain ? La
+      position « la répétition est preuve » plaide pour la deuxième ; un
+      plafond sur les ré-assertions (ex. archiver la correction à la 3ᵉ)
+      plaide pour une première. Un booléen de configuration peut laisser le
+      choix.
+- [ ] **`import` derrière la porte** — consulter `memory_suppressions` à
+      l'import (options : rejeter la valeur, ou la reinstancier avec un état
+      supprimé) ; le schema porte déjà la colonne `expires_at` des suppressions.
+- [ ] **Auditer les refus** — écrire une ligne `audit_log` quand un write est
+      refusé par suppression (le seul événement de gouvernance non journalisé).
+- [ ] **`purge` des candidats** — nettoyer le texte des candidats dont la
+      mémoire est purgée.
+- [ ] **Règles de consolidation en code** — déplacer les consignes « épinglées
+      et critiques intouchables » hors du prompt dans un check de base, comme
+      le scoring.
+- [ ] **Pin comme terme de rang (à débattre)** — ou documenter explicitement
+      que le pin garantit la survie, pas la visibilité ; un correctif possible
+      est un petit terme `pinned × c` dans le rang.
+- [ ] **Sémantique réelle** — calibrage du seuil cosinus 0.5 avec des
+      embeddings réels ; jeux de requêtes tirés de vrais usages.
+
 ## 11. Constantes et calibration (résultat du banc d'essai)
 
 Toutes les constantes vivent dans `src/config.ts`, surchargeables par l'utilisateur
@@ -302,7 +386,7 @@ déterministe, exécuté à chaque `npm test`.
 - **À enrichir** : jeux de requêtes tirés de vrais usages, comparaison avec le mode
   relax (nécessite Ollama), calibration du seuil cosinus 0.5 avec des embeddings réels.
 
-## 10. Questions ouvertes
+## 12. Questions ouvertes
 
 - Seuil de déclenchement de la consolidation (nombre de faits ? temps ?)
 - Confiance initiale d'une nouvelle mémoire (0.5 aujourd'hui) : à calibrer
@@ -314,3 +398,24 @@ déterministe, exécuté à chaque `npm test`.
   vérifications externes hors-ligne (gh, jobs), receipts signés, index
   vectoriel natif. Le chemin `memory_verify` couvre déjà la vérification
   humaine/externe sans dépendance.
+
+Héritées du review externe (Agent Memory Atlas) :
+
+- **Porte : automatique ou humaine ?** La supersession écrit-elle une
+  suppression quand elle archive, ou le rejet est-il intentionnellement réservé
+  à l'humain ? Les deux chemins répondent différemment aujourd'hui, et aucun
+  document ne dit lequel est voulu.
+- **`resurrectConfidence`** (0.3) : remise one-shot, ou début d'une échelle de
+  retour ? Une valeur revient à bas prix puis grimpe par renforcement ordinaire.
+- **`import`** doit-il consulter les suppressions, ou restaurer un backup doit-il
+  restaurer ce que le backup croyait ?
+- **`expires_at` n'est jamais écrit** : une suppression qui expire est-elle
+  voulue et non construite, ou la colonne est-elle un placeholder ?
+- **`asOf` et `recorded_at`** : une requête historique devrait-elle aussi
+  filtrer sur `recorded_at`, pour répondre « ce que la base croyait alors »
+  et pas seulement « ce qui était vrai alors » ?
+- **Seuil cosinus 0.5** du mode relax : tient-il face à de vrais embeddings, ou
+  est-il repris du plancher lexical ?
+- **Démos de correction** : `asOf` à la date d'enregistrement, plafonds de
+  ré-assertions, et ce que le pin devrait peser dans le rang — à trancher avec
+  des cas réels.

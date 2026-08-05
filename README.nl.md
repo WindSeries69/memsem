@@ -64,7 +64,7 @@ memsem lost precies deze drie dingen op:
   [`DESIGN.md`](DESIGN.md) §11).
 - 🔄 **Het corrigeert zichzelf.** Tegenstrijdigheden laten het oude feit vervagen in plaats
   van het te overschrijven ("Ik heb jarenlang melk gedronken… wacht, lactose-intolerant") —
-  de geschiedenis wordt altijd bewaard, kritieke feiten (≥ 0.9) worden beschermd.
+  de geschiedenis wordt altijd bewaard, kritieke feiten (≥ 0.8) worden beschermd.
   Achtergrondagenten extraheren duurzame feiten aan het einde van de sessie, consolideren
   kleine feiten tot patronen, en kalibreren prioriteiten opnieuw — alleen wanneer de
   geheugen blijft *minstens zo doorzoekbaar*.
@@ -180,7 +180,7 @@ flowchart LR
     S -- yes --> F["old fact fades progressively"]
     F --> A["archived — history always kept"]
     S -- no --> K["kept, reinforced"]
-    A --> J["pinned & critical (≥ 0.9) are protected"]
+    A --> J["pinned & critical (≥ 0.8) are protected"]
 ```
 
 - **Atomaire feiten** — elke herinnering is een `subject → predicate → object`-triplé met
@@ -260,6 +260,28 @@ schrijfbewerking laat de database intact. Volledige dumps en herstellen via
 - [`scripts/demo.mjs`](scripts/demo.mjs) — reproduceer de demo hierboven op een
   weggooidatabase.
 
+## Bekende beperkingen
+
+Eerlijk gelezen, uit een onafhankelijke review ([Agent Memory Atlas](https://neoneye.github.io/agent-memory-atlas/systems/memsem/)):
+
+- **Het automatische correctiepad heeft geen slot.** Een afgewezen waarde die
+  *opnieuw wordt bevestigd* (zeg dat hetzelfde oude transcript tien keer wordt gelezen) keert terug en
+  vervaagt de eigen correctie — een gewone correctie wordt gearchiveerd bij de derde
+  herbevestiging. Alleen een **mens die een kandidaat afwijst** schrijft een
+  duurzame onderdrukking (`memory_suppressions`) die de waarde botweg weigert. Dit is
+  een bewuste positie (herhaling is bewijs) met een reële kost.
+- **Een pin beschermt overleving, niet zichtbaarheid.** Een vastgezette correctie verliest nooit
+  vertrouwen en blijft eerste in `memsem list`, maar een herhaalde afgewezen waarde
+  kan nog steeds het bovenste `memory_search`-resultaat innemen.
+- **`import` schrijft achter de poort** — het herstellen van een back-up brengt een
+  onderdrukte waarde terug.
+- **Een geweigerde schrijfoperatie laat geen auditregel na**, en het opschonen van een beoordeeld feit
+  laat zijn tekst achter in `memory_candidates`.
+- **De veiligheidsregels voor consolidatie en extractie zijn prompts, geen code.**
+
+Ruwe randjes, geen bugs — elk ervan wordt bijgehouden in de routekaart van [DESIGN.md](DESIGN.md)
+en open vragen.
+
 ## Routekaart
 
 - [x] Semantische index (lokale Ollama-embeddings)
@@ -270,8 +292,11 @@ schrijfbewerking laat de database intact. Volledige dumps en herstellen via
 - [x] Configureerbare constanten, gevalideerd door een benchmark
 - [x] Veilige judge: dry-run, auditlogboek, guardrails, `memsem doctor`
 - [x] CLI: `list` / `edit` / `forget` — corrigeer een feit met de hand
+- [x] Multi-hop-graafpropagatie
+- [ ] Write gate op het automatische pad (beslissing supersessie → onderdrukking)
+- [ ] `import` achter de poort (raadpleeg de onderdrukkingen)
+- [ ] Audit van weigeringen; kandidaatteksten opschonen; consolidatieregels in code
 - [ ] Obsidian-brug: exporteer/importeer geheugen als leesbare markdown-notities
-- [ ] Multi-hop-graafpropagatie
 
 ## Licentie
 

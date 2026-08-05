@@ -64,7 +64,7 @@ memsem tam olarak bu üç şeyi düzeltir:
   [`DESIGN.md`](DESIGN.md) §11).
 - 🔄 **Kendini düzeltir.** Çelişkiler eski gerçeği üzerine yazmak yerine
   soldurur ("Yıllarca süt içtim… bir dakika, laktoz intoleransım var") —
-  geçmiş her zaman korunur, kritik gerçekler (≥ 0.9) koruma altındadır. Arka
+  geçmiş her zaman korunur, kritik gerçekler (≥ 0.8) koruma altındadır. Arka
   plan ajanları oturum sonunda kalıcı gerçekleri çıkarır, küçük gerçekleri
   örüntüler halinde birleştirir ve öncelikleri yeniden kalibre eder — yalnızca
   bellek *en az onun kadar aranabilir* kaldığı sürece.
@@ -170,7 +170,7 @@ flowchart LR
     S -- yes --> F["old fact fades progressively"]
     F --> A["archived — history always kept"]
     S -- no --> K["kept, reinforced"]
-    A --> J["pinned & critical (≥ 0.9) are protected"]
+    A --> J["pinned & critical (≥ 0.8) are protected"]
 ```
 
 - **Atomik gerçekler** — her bellek, önem, güven, sıklık, etiketler, tema ve kaynak içeren bir `subject → predicate → object` üçlüsüdür.
@@ -230,6 +230,29 @@ Veritabanı sürümlenir ve başlangıçta otomatik olarak taşınır (`schema_m
 - [`DESIGN.md`](DESIGN.md) — tam tasarım: vizyon, ilkeler, laktoz vaka çalışması, sabit kalibrasyonu, yol haritası.
 - [`scripts/demo.mjs`](scripts/demo.mjs) — yukarıdaki demoyu atılabilir bir veritabanında yeniden üretir.
 
+## Bilinen sınırlamalar
+
+Dürüstçe okuyun, bağımsız bir incelemeden ([Agent Memory Atlas](https://neoneye.github.io/agent-memory-atlas/systems/memsem/)):
+
+- **Otomatik düzeltme yolunda kilit yok.** *Yeniden onaylanan* reddedilmiş bir
+  değer (diyelim ki aynı eski döküm on kez okundu) geri döner ve kendi
+  düzeltmesini soldurur — sıradan bir düzeltme üçüncü yeniden onaylamada
+  arşivlenir. Yalnızca **bir adayı reddeden insan**, değeri doğrudan reddeden
+  kalıcı bir bastırma (`memory_suppressions`) yazar. Bu, gerçek bir maliyeti
+  olan bilinçli bir pozisyondur (tekrar, kanıttır).
+- **Sabitleme hayatta kalmayı korur, görünürlüğü değil.** Sabitlenmiş bir
+  düzeltme asla güvenini kaybetmez ve `memsem list` içinde ilk sırada kalır,
+  ancak tekrarlanan reddedilmiş bir değer yine de `memory_search` sonucunun en
+  üstünü alabilir.
+- **`import` kapının ötesine yazar** — bir yedeği geri yüklemek bastırılmış
+  bir değeri geri getirir.
+- **Reddedilen bir yazma denetim satırı bırakmaz** ve incelenmiş bir gerçeğin
+  temizlenmesi metnini `memory_candidates` içinde bırakır.
+- **Konsolidasyon ve çıkarım güvenlik kuralları kod değil, prompt'lardır.**
+
+Pürüzlü kenarlar, hata değil — her biri [DESIGN.md](DESIGN.md) yol haritasında
+ve açık sorularda izlenir.
+
 ## Yol haritası
 
 - [x] Anlamsal indeks (yerel Ollama gömmeleri)
@@ -240,8 +263,11 @@ Veritabanı sürümlenir ve başlangıçta otomatik olarak taşınır (`schema_m
 - [x] Bir kıyaslamayla doğrulanan yapılandırılabilir sabitler
 - [x] Güvenli yargıç: kuru çalıştırma, denetim günlüğü, güvenlik korkulukları, `memsem doctor`
 - [x] CLI: `list` / `edit` / `forget` — bir gerçeği elle düzeltin
+- [x] Çok atlamalı grafik yayılımı
+- [ ] Otomatik yolda write gate (supersession → suppression kararı)
+- [ ] `import` kapının arkasında (suppression'ları kontrol etme)
+- [ ] Reddedilmeleri denetleme ; adayları temizleme ; konsolidasyon kurallarını kodda
 - [ ] Obsidian köprüsü: belleği okunabilir markdown notları olarak dışa/içe aktarma
-- [ ] Çok atlamalı grafik yayılımı
 
 ## Lisans
 

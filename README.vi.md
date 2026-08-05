@@ -64,7 +64,7 @@ memsem sửa chính xác ba điều này:
   [`DESIGN.md`](DESIGN.md) §11).
 - 🔄 **Nó tự sửa mình.** Các mâu thuẫn làm mờ sự kiện cũ thay vì ghi đè nó
   ("Tôi đã uống sữa nhiều năm… khoan, bất dung nạp lactose") — lịch sử
-  luôn được giữ, các sự kiện quan trọng (≥ 0.9) được bảo vệ. Các tác nhân nền
+  luôn được giữ, các sự kiện quan trọng (≥ 0.8) được bảo vệ. Các tác nhân nền
   trích xuất các sự kiện bền vững khi kết thúc phiên, gộp các sự kiện nhỏ thành các
   khuôn mẫu và hiệu chỉnh lại mức ưu tiên — chỉ khi bộ nhớ vẫn *dễ tìm kiếm ít nhất như trước*.
 
@@ -169,7 +169,7 @@ flowchart LR
     S -- yes --> F["old fact fades progressively"]
     F --> A["archived — history always kept"]
     S -- no --> K["kept, reinforced"]
-    A --> J["pinned & critical (≥ 0.9) are protected"]
+    A --> J["pinned & critical (≥ 0.8) are protected"]
 ```
 
 - **Sự kiện nguyên tử** — mọi ký ức là một bộ ba `subject → predicate → object` kèm mức độ quan trọng, độ tin cậy, tần suất, thẻ, chủ đề, nguồn gốc.
@@ -236,6 +236,18 @@ Xuất và khôi phục toàn bộ qua `memsem export` / `memsem import`.
 - [`DESIGN.md`](DESIGN.md) — thiết kế đầy đủ: tầm nhìn, nguyên tắc, nghiên cứu tình huống lactose, hiệu chỉnh hằng số, lộ trình phát triển.
 - [`scripts/demo.mjs`](scripts/demo.mjs) — tái hiện bản demo ở trên trên một cơ sở dữ liệu dùng một lần.
 
+## Hạn chế đã biết
+
+Đọc một cách trung thực, từ một bài đánh giá độc lập ([Agent Memory Atlas](https://neoneye.github.io/agent-memory-atlas/systems/memsem/)):
+
+- **Đường dẫn sửa chữa tự động không có khóa.** Một giá trị bị từ chối được *khẳng định lại* (chẳng hạn cùng một bản ghi cũ được đọc mười lần) quay trở lại và làm lu mờ chính sự sửa chữa của nó — một sự sửa chữa thông thường được lưu trữ ở lần khẳng định lại thứ ba. Chỉ khi **một con người từ chối một ứng viên** mới ghi một suppression bền vững (`memory_suppressions`) thẳng thừng khước từ giá trị đó. Đây là một lập trường có chủ đích (sự lặp lại là bằng chứng) với một cái giá thực sự.
+- **Một pin bảo vệ sự tồn tại, không phải khả năng hiển thị.** Một sự sửa chữa được ghim không bao giờ mất độ tin cậy và luôn đứng đầu trong `memsem list`, nhưng một giá trị bị từ chối lặp lại vẫn có thể chiếm kết quả đầu tiên của `memory_search`.
+- **`import` ghi qua cổng** — khôi phục bản sao lưu sẽ đưa lại một giá trị đã bị chặn.
+- **Một lần ghi bị từ chối không để lại dòng kiểm toán**, và việc xóa một sự kiện đã duyệt để lại văn bản của nó trong `memory_candidates`.
+- **Các quy tắc an toàn của hợp nhất và trích xuất là các lời nhắc (prompt), không phải mã.**
+
+Các góc cạnh thô, không phải lỗi — từng vấn đề được theo dõi trong lộ trình và các câu hỏi mở của [DESIGN.md](DESIGN.md).
+
 ## Lộ trình
 
 - [x] Chỉ mục ngữ nghĩa (nhúng Ollama cục bộ)
@@ -246,8 +258,11 @@ Xuất và khôi phục toàn bộ qua `memsem export` / `memsem import`.
 - [x] Các hằng số có thể cấu hình, kiểm chứng bằng điểm chuẩn
 - [x] Bộ đánh giá an toàn: chạy thử (dry-run), nhật ký kiểm toán, lan can an toàn, `memsem doctor`
 - [x] CLI: `list` / `edit` / `forget` — chỉnh sửa sự kiện bằng tay
+- [x] Lan truyền đồ thị đa chặng (multi-hop)
+- [ ] Write gate trên đường tự động (quyết định supersession → suppression)
+- [ ] `import` sau cánh cổng (tham khảo suppressions)
+- [ ] Từ chối kiểm toán; dọn dẹp ứng viên; quy tắc hợp nhất trong mã
 - [ ] Cầu nối Obsidian: xuất/nhập bộ nhớ dưới dạng ghi chú markdown dễ đọc
-- [ ] Lan truyền đồ thị đa chặng (multi-hop)
 
 ## Giấy phép
 

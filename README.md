@@ -64,7 +64,7 @@ memsem fixes exactly these three things:
   [`DESIGN.md`](DESIGN.md) §11).
 - 🔄 **It corrects itself.** Contradictions fade the old fact instead of
   overwriting it ("I drank milk for years… wait, lactose intolerant") — history
-  is always kept, critical facts (≥ 0.9) are protected. Background agents
+  is always kept, critical facts (≥ 0.8) are protected. Background agents
   extract durable facts at session end, consolidate small facts into patterns,
   and recalibrate priorities — only when the memory stays *at least as
   searchable*.
@@ -169,7 +169,7 @@ flowchart LR
     S -- yes --> F["old fact fades progressively"]
     F --> A["archived — history always kept"]
     S -- no --> K["kept, reinforced"]
-    A --> J["pinned & critical (≥ 0.9) are protected"]
+    A --> J["pinned & critical (≥ 0.8) are protected"]
 ```
 
 - **Atomic facts** — every memory is a `subject → predicate → object` triple with importance, confidence, frequency, tags, theme, provenance, trust and evidence.
@@ -179,6 +179,28 @@ flowchart LR
 - **Semantic index (optional)** — each fact is embedded locally (`mxbai-embed-large` via Ollama); `relax: true` searches add cosine similarity (threshold 0.5). Without Ollama, everything works identically — strict lexical search.
 - **Evidence and time** — `inferred`, `verbatim` and `verified` trust states keep a short evidence trail; `recorded_at` is separate from `valid_from` / `valid_until`, with historical `asOf` queries.
 - **Review and scope** — uncertain facts can stay `pending`; rejection blocks their normalized value, project scope is isolated by default, and cross-project search is explicit.
+
+## Known limitations
+
+Read honestly, from an independent review ([Agent Memory Atlas](https://neoneye.github.io/agent-memory-atlas/systems/memsem/)):
+
+- **The automatic correction path has no lock.** A rejected value that is
+  *re-asserted* (say the same old transcript is read ten times) returns and
+  fades its own correction — an ordinary correction is archived at the third
+  re-assertion. Only a **human rejecting a candidate** writes a durable
+  suppression (`memory_suppressions`) that refuses the value outright. This is
+  a deliberate position (repetition is evidence) with a real cost.
+- **A pin protects survival, not visibility.** A pinned correction never loses
+  confidence and stays first in `memsem list`, but a repeated rejected value
+  can still take the top `memory_search` result.
+- **`import` writes past the gate** — restoring a backup reinstates a
+  suppressed value.
+- **A refused write leaves no audit row**, and purging a reviewed fact leaves
+  its text in `memory_candidates`.
+- **Consolidation and extraction safety rules are prompts, not code.**
+
+Rough edges, not bugs — each is tracked in [DESIGN.md](DESIGN.md) roadmap and
+open questions.
 
 ## Comparison
 
@@ -250,8 +272,11 @@ restores via `memsem export` / `memsem import`.
 - [x] Secure judge: dry-run, audit journal, guardrails, `memsem doctor`
 - [x] CLI: `list` / `edit` / `forget` — fix a fact by hand
 - [x] Evidence contract, temporal validity, candidate review, audit and confirmed purge
+- [x] Multi-hop graph propagation (relax mode)
+- [ ] Write gate on the automatic path (supersession → suppression decision)
+- [ ] `import` behind the gate (consult suppressions)
+- [ ] Audit refused writes; purge candidate text; consolidation rules in code
 - [ ] Obsidian bridge: export/import memory as readable markdown notes
-- [ ] Multi-hop graph propagation
 
 ## License
 

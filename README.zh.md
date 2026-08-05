@@ -56,7 +56,7 @@ memsem 恰好修复了这三点：
   [`scripts/bench.mjs`](scripts/bench.mjs)，结果见
   [`DESIGN.md`](DESIGN.md) §11）。
 - 🔄 **它会自我修正。** 矛盾会让旧事实逐渐淡出，而不是覆盖它（“我喝了多年牛奶…
-  等等，乳糖不耐受”）— 历史永远保留，关键事实（≥ 0.9）受到保护。后台智能体
+  等等，乳糖不耐受”）— 历史永远保留，关键事实（≥ 0.8）受到保护。后台智能体
   在会话结束时提取持久事实，把小事实整合成模式，并重新校准优先级 — 且仅在记忆
   保持 *至少同样可搜索* 的前提下进行。
 
@@ -166,7 +166,7 @@ flowchart LR
     S -- yes --> F["old fact fades progressively"]
     F --> A["archived — history always kept"]
     S -- no --> K["kept, reinforced"]
-    A --> J["pinned & critical (≥ 0.9) are protected"]
+    A --> J["pinned & critical (≥ 0.8) are protected"]
 ```
 
 - **原子事实** — 每条记忆都是 `subject → predicate → object` 三元组，带有重要性、
@@ -238,6 +238,18 @@ WAL 模式已开启 — 写入中途崩溃也不会破坏数据库。完整导�
 - [`DESIGN.md`](DESIGN.md) — 完整设计：愿景、原则、乳糖案例研究、常数校准、路线图。
 - [`scripts/demo.mjs`](scripts/demo.mjs) — 在一次性数据库上复现上面的演示。
 
+## 已知限制
+
+这是根据一份独立评审（[Agent Memory Atlas](https://neoneye.github.io/agent-memory-atlas/systems/memsem/)）如实所记：
+
+- **自动修正路径没有锁。** 被拒绝的值被*重新断言*（比如同一份旧记录被读了十遍）时，它就会回来，并淡化自己的修正 — 普通的修正会在第三次重新断言时被归档。只有**人类拒绝候选**才会写入一条永久抑制（`memory_suppressions`），彻底拒绝该值。这是一个有意为之的立场（重复就是证据），并有其真实的代价。
+- **置顶保护的是存活，而不是可见性。** 被置顶的修正永远不会失去置信度，且始终排在 `memsem list` 的第一位，但一个被反复拒绝的值仍可能占据 `memory_search` 的置顶结果。
+- **`import` 会绕过闸门写入** — 恢复备份会重新启用被抑制的值。
+- **被拒绝的写入不会留下审计行**，而清除一个已评审的事实会将其文本留在 `memory_candidates` 中。
+- **整合与提取的安全规则是提示词，而不是代码。**
+
+这些是粗粝之处，不是缺陷 — 每一项都记录在 [DESIGN.md](DESIGN.md) 的路线图和未决问题中。
+
 ## 路线图
 
 - [x] 语义索引（本地 Ollama 嵌入）
@@ -248,8 +260,11 @@ WAL 模式已开启 — 写入中途崩溃也不会破坏数据库。完整导�
 - [x] 可配置常数，由基准测试验证
 - [x] 安全裁判：试运行、审计日志、护栏、`memsem doctor`
 - [x] CLI：`list` / `edit` / `forget` — 手动修正事实
+- [x] 多跳图谱传播（relax 模式）
+- [ ] 自动路径上的写入闸门（更替 → 抑制决策）
+- [ ] 闸门后的 `import`（查询抑制记录）
+- [ ] 审计被拒的写入；清除候选文本；将整合规则写入代码
 - [ ] Obsidian 桥接：将记忆导出/导入为可读的 markdown 笔记
-- [ ] 多跳图谱传播
 
 ## 许可证
 

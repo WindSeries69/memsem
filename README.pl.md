@@ -64,7 +64,7 @@ memsem naprawia dokładnie te trzy rzeczy:
   [`DESIGN.md`](DESIGN.md) §11).
 - 🔄 **Koryguje się sama.** Sprzeczności wygaszają stary fakt zamiast go
   nadpisywać („piłem mleko przez lata… chwila, nietolerancja laktozy") —
-  historia jest zawsze zachowana, fakty krytyczne (≥ 0.9) są chronione. Agenci
+  historia jest zawsze zachowana, fakty krytyczne (≥ 0.8) są chronione. Agenci
   w tle wyciągają trwałe fakty na koniec sesji, konsolidują drobne fakty we
   wzorce i recalibrują priorytety — tylko wtedy, gdy pamięć pozostaje
   *przynajmniej tak samo przeszukiwalna*.
@@ -170,7 +170,7 @@ flowchart LR
     S -- yes --> F["old fact fades progressively"]
     F --> A["archived — history always kept"]
     S -- no --> K["kept, reinforced"]
-    A --> J["pinned & critical (≥ 0.9) are protected"]
+    A --> J["pinned & critical (≥ 0.8) are protected"]
 ```
 
 - **Fakty atomowe** — każda pamięć to trójka `subject → predicate → object` z wagą (importance), pewnością (confidence), częstotliwością (frequency), tagami, tematem i pochodzeniem (provenance).
@@ -238,6 +238,29 @@ przywracanie przez `memsem export` / `memsem import`.
 - [`DESIGN.md`](DESIGN.md) — pełny projekt: wizja, zasady, studium przypadku laktozy, kalibracja stałych, plan rozwoju.
 - [`scripts/demo.mjs`](scripts/demo.mjs) — odtwórz powyższą demonstrację na jednorazowej bazie danych.
 
+## Znane ograniczenia
+
+Przeczytaj szczerze, z niezależnej recenzji ([Agent Memory Atlas](https://neoneye.github.io/agent-memory-atlas/systems/memsem/)):
+
+- **Automatyczna ścieżka korekty nie ma blokady.** Odrzucona wartość,
+  *ponownie potwierdzona* (powiedzmy, ten sam stary transkrypt jest czytany
+  dziesięć razy), wraca i wygasza własną korektę — zwykła korekta jest
+  archiwizowana przy trzecim ponownym potwierdzeniu. Tylko **człowiek
+  odrzucający kandydata** zapisuje trwałe tłumienie (`memory_suppressions`),
+  które odrzuca wartość wprost. To celowe stanowisko (powtórzenie jest dowodem)
+  z realnym kosztem.
+- **Przypięcie chroni przetrwanie, nie widoczność.** Przypięta korekta nigdy
+  nie traci pewności i pozostaje pierwsza na `memsem list`, ale powtarzana
+  odrzucona wartość może nadal zająć pierwszy wynik `memory_search`.
+- **`import` pisze poza bramą** — przywrócenie kopii zapasowej przywraca
+  tłumioną wartość.
+- **Odrzucony zapis nie pozostawia wiersza audytu**, a usunięcie sprawdzonego
+  faktu pozostawia jego tekst w `memory_candidates`.
+- **Zasady bezpieczeństwa konsolidacji i ekstrakcji to prompty, nie kod.**
+
+Ostre krawędzie, nie błędy — każda jest śledzona w [DESIGN.md](DESIGN.md)
+planie rozwoju i otwartych pytaniach.
+
 ## Plan rozwoju
 
 - [x] Indeks semantyczny (lokalne embeddingi Ollama)
@@ -248,8 +271,11 @@ przywracanie przez `memsem export` / `memsem import`.
 - [x] Konfigurowalne stałe, walidowane benchmarkiem
 - [x] Bezpieczny sędzia: dry-run, dziennik audytu, zabezpieczenia, `memsem doctor`
 - [x] CLI: `list` / `edit` / `forget` — popraw fakt ręcznie
+- [x] Propagacja wieloprzeskokowa po grafie
+- [ ] Write gate na automatycznej ścieżce (decyzja supersession → suppression)
+- [ ] `import` za bramą (konsultowanie suppressions)
+- [ ] Audyt odmów ; czyszczenie kandydatów ; reguły konsolidacji w kodzie
 - [ ] Most Obsidian: export/import pamięci jako czytelne notatki markdown
-- [ ] Propagacja wieloprzeskokowa po grafie
 
 ## Licencja
 

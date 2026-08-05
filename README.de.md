@@ -64,7 +64,7 @@ memsem behebt genau diese drei Dinge:
   [`DESIGN.md`](DESIGN.md) §11).
 - 🔄 **Es korrigiert sich selbst.** Widersprüche lassen den alten Fakt verblassen,
   statt ihn zu überschreiben („Ich habe jahrelang Milch getrunken … Moment, laktoseintolerant") —
-  die Historie bleibt immer erhalten, kritische Fakten (≥ 0.9) sind geschützt.
+  die Historie bleibt immer erhalten, kritische Fakten (≥ 0.8) sind geschützt.
   Hintergrund-Agenten extrahieren am Sitzungsende dauerhafte Fakten, bündeln kleine
   Fakten zu Mustern und kalibrieren Prioritäten neu — nur dann, wenn die Erinnerung
   *mindestens genauso durchsuchbar* bleibt.
@@ -169,7 +169,7 @@ flowchart LR
     S -- yes --> F["old fact fades progressively"]
     F --> A["archived — history always kept"]
     S -- no --> K["kept, reinforced"]
-    A --> J["pinned & critical (≥ 0.9) are protected"]
+    A --> J["pinned & critical (≥ 0.8) are protected"]
 ```
 
 - **Atomare Fakten** — jede Erinnerung ist ein `subject → predicate → object`-Tripel mit importance, confidence, frequency, Tags, Theme und Provenienz.
@@ -236,6 +236,30 @@ Wiederherstellungen über `memsem export` / `memsem import`.
 - [`DESIGN.md`](DESIGN.md) — vollständiges Design: Vision, Prinzipien, die Lactose-Fallstudie, Konstanten-Kalibrierung, Roadmap.
 - [`scripts/demo.mjs`](scripts/demo.mjs) — reproduziere die Demo oben auf einer Wegwerf-Datenbank.
 
+## Bekannte Einschränkungen
+
+Ehrlich gelesen, aus einer unabhängigen Prüfung ([Agent Memory Atlas](https://neoneye.github.io/agent-memory-atlas/systems/memsem/)):
+
+- **Der automatische Korrekturpfad hat kein Schloss.** Ein abgelehnter Wert, der
+  *erneut behauptet* wird (sagen wir, dasselbe alte Transkript wird zehnmal
+  gelesen), kehrt zurück und lässt seine eigene Korrektur verblassen — eine
+  gewöhnliche Korrektur wird bei der dritten Wiederbehauptung archiviert. Nur
+  ein **Mensch, der einen Kandidaten ablehnt**, schreibt eine dauerhafte
+  Suppression (`memory_suppressions`), die den Wert rundweg verweigert. Das ist
+  eine bewusste Position (Wiederholung ist Beweis) mit einem realen Preis.
+- **Ein Pin schützt das Überleben, nicht die Sichtbarkeit.** Eine gepinnte
+  Korrektur verliert nie an confidence und bleibt zuerst in `memsem list`, aber
+  ein wiederholt abgelehnter Wert kann trotzdem das oberste `memory_search`-Ergebnis
+  einnehmen.
+- **`import` schreibt am Gate vorbei** — das Wiederherstellen eines Backups setzt
+  einen unterdrückten Wert wieder ein.
+- **Ein abgelehnter Schreibvorgang hinterlässt keine Audit-Zeile**, und das
+  Bereinigen eines geprüften Fakts hinterlässt dessen Text in `memory_candidates`.
+- **Konsolidierungs- und Extraktions-Sicherheitsregeln sind Prompts, nicht Code.**
+
+Raue Kanten, keine Bugs — jede ist in der [DESIGN.md](DESIGN.md)-Roadmap und
+den offenen Fragen erfasst.
+
 ## Roadmap
 
 - [x] Semantischer Index (lokale Ollama-Embeddings)
@@ -246,8 +270,12 @@ Wiederherstellungen über `memsem export` / `memsem import`.
 - [x] Konfigurierbare Konstanten, validiert durch eine Benchmark
 - [x] Sicherer Judge: Dry-Run, Audit-Journal, Schutzmechanismen, `memsem doctor`
 - [x] CLI: `list` / `edit` / `forget` — einen Fakt von Hand korrigieren
+- [x] Beweisvertrag, zeitliche Gültigkeit, Kandidatenprüfung, Audit und bestätigtes Purge
+- [x] Multi-Hop-Graph-Ausbreitung (Relax-Modus)
+- [ ] Write-Gate auf dem automatischen Pfad (Supersession → Suppression-Entscheidung)
+- [ ] `import` hinter dem Gate (auf Suppressions prüfen)
+- [ ] Abgelehnte Schreibvorgänge auditieren; Kandidatentext bereinigen; Konsolidierungsregeln im Code
 - [ ] Obsidian-Brücke: Erinnerung als lesbare Markdown-Notizen exportieren/importieren
-- [ ] Multi-Hop-Graph-Ausbreitung
 
 ## Lizenz
 

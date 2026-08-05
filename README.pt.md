@@ -65,7 +65,7 @@ O memsem corrige exatamente estas três coisas:
   [`DESIGN.md`](DESIGN.md) §11).
 - 🔄 **Ele corrige-se a si próprio.** Contradições desvanecem o facto antigo em
   vez de o sobrescrever ("bebi leite durante anos… espera, intolerante à lactose") —
-  o histórico é sempre mantido, factos críticos (≥ 0.9) são protegidos. Agentes
+  o histórico é sempre mantido, factos críticos (≥ 0.8) são protegidos. Agentes
   em segundo plano extraem factos duradouros no fim da sessão, consolidam pequenos
   factos em padrões e recalibram prioridades — apenas quando a memória continua
   *pelo menos tão* pesquisável.
@@ -172,7 +172,7 @@ flowchart LR
     S -- yes --> F["old fact fades progressively"]
     F --> A["archived — history always kept"]
     S -- no --> K["kept, reinforced"]
-    A --> J["pinned & critical (≥ 0.9) are protected"]
+    A --> J["pinned & critical (≥ 0.8) are protected"]
 ```
 
 - **Factos atómicos** — cada memória é um triplo `subject → predicate → object` com importância, confiança, frequência, tags, tema e proveniência.
@@ -239,6 +239,28 @@ restauros via `memsem export` / `memsem import`.
 - [`DESIGN.md`](DESIGN.md) — o design completo: visão, princípios, o estudo de caso da lactose, calibração de constantes, folha de rota.
 - [`scripts/demo.mjs`](scripts/demo.mjs) — reproduz a demo acima numa base de dados descartável.
 
+## Limitações conhecidas
+
+Lido com honestidade, a partir de uma revisão independente ([Agent Memory Atlas](https://neoneye.github.io/agent-memory-atlas/systems/memsem/)):
+
+- **O caminho de correção automática não tem bloqueio.** Um valor rejeitado que é
+  *reafirmado* (digamos que a mesma transcrição antiga é lida dez vezes) volta e
+  enfraquece a sua própria correção — uma correção comum é arquivada na terceira
+  reafirmação. Apenas um **humano a rejeitar um candidato** escreve uma
+  supressão duradoura (`memory_suppressions`) que recusa o valor abertamente. Esta é
+  uma posição deliberada (a repetição é evidência) com um custo real.
+- **Um pin protege a sobrevivência, não a visibilidade.** Uma correção fixada nunca perde
+  confiança e mantém-se em primeiro lugar em `memsem list`, mas um valor rejeitado repetido
+  ainda pode ocupar o primeiro resultado de `memory_search`.
+- **`import` escreve atrás do portão** — restaurar uma cópia de segurança repõe um
+  valor suprimido.
+- **Uma escrita recusada não deixa nenhuma linha de auditoria**, e purgar um facto revisto deixa
+  o seu texto em `memory_candidates`.
+- **As regras de segurança da consolidação e da extração são prompts, não código.**
+
+Arestas por limar, não bugs — cada uma é acompanhada na folha de rota de [DESIGN.md](DESIGN.md)
+e nas questões em aberto.
+
 ## Folha de rota
 
 - [x] Índice semântico (embeddings locais do Ollama)
@@ -249,8 +271,11 @@ restauros via `memsem export` / `memsem import`.
 - [x] Constantes configuráveis, validadas por um benchmark
 - [x] Juiz seguro: dry-run, diário de auditoria, salvaguardas, `memsem doctor`
 - [x] CLI: `list` / `edit` / `forget` — corrigir um facto à mão
+- [x] Propagação multi-saltos no grafo
+- [ ] Write gate no caminho automático (decisão de supersessão → supressão)
+- [ ] `import` atrás do portão (consultar as supressões)
+- [ ] Auditar as recusas; purgar os candidatos; regras de consolidação em código
 - [ ] Ponte para Obsidian: exportar/importar memória como notas markdown legíveis
-- [ ] Propagação multi-saltos no grafo
 
 ## Licença
 
